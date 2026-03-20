@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#060608">
+<title>IdeaForge Pro — Advanced Startup Evaluation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@400;500;600;700&family=Cabinet+Grotesk:wght@300;400;500;700;800&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- PARTICLE CANVAS BG -->
+<canvas id="bgCanvas"></canvas>
+
+<!-- CURSOR GLOW -->
+<div class="cursor-glow" id="cursorGlow"></div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar glass" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-hex">
+      <svg viewBox="0 0 40 40" width="36" height="36"><polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill="none" stroke="var(--accent)" stroke-width="1.5"/><polygon points="20,8 30,14 30,26 20,32 10,26 10,14" fill="var(--accent)" opacity="0.15"/><text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" fill="var(--accent)" font-size="13" font-weight="700" font-family="monospace">IF</text></svg>
+    </div>
+    <div>
+      <div class="logo-text">IdeaForge</div>
+      <div class="logo-sub">PRO</div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+      <span id="themeIcon">◑</span>
+    </button>
+  </div>
+
+  <div class="sidebar-search">
+    <span class="search-icon">⌕</span>
+    <input type="text" id="sidebarSearch" placeholder="Search ideas..." class="search-input">
+    <kbd class="search-kbd">⌘K</kbd>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">WORKSPACE</div>
+    <ul class="nav-list">
+      <li class="nav-item active" data-view="dashboard"><span class="nav-icon-wrap"><i class="ni">◈</i></span><span>Dashboard</span><span class="nav-badge" id="navBadgeTotal">0</span></li>
+      <li class="nav-item" data-view="new-idea"><span class="nav-icon-wrap"><i class="ni">✦</i></span><span>New Idea</span></li>
+      <li class="nav-item" data-view="leaderboard"><span class="nav-icon-wrap"><i class="ni">◉</i></span><span>Leaderboard</span></li>
+      <li class="nav-item" data-view="compare"><span class="nav-icon-wrap"><i class="ni">⇄</i></span><span>Compare</span></li>
+      <li class="nav-item" data-view="analytics"><span class="nav-icon-wrap"><i class="ni">▦</i></span><span>Analytics</span></li>
+    </ul>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">YOUR IDEAS</div>
+    <ul class="nav-list" id="sidebarIdeas"></ul>
+  </div>
+
+  <div class="sidebar-bottom">
+    <button class="btn-export-all" id="btnExportAll">↓ Export All Data</button>
+    <div class="sidebar-version">v2.0 · IdeaForge Pro</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main" id="main">
+  <!-- TOPBAR -->
+  <header class="topbar glass" id="topbar">
+    <button class="menu-btn" id="menuBtn">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="breadcrumb" id="breadcrumb">
+      <span class="bc-home">IdeaForge</span>
+      <span class="bc-sep">›</span>
+      <span class="bc-current" id="bcCurrent">Dashboard</span>
+    </nav>
+    <div class="topbar-right">
+      <div class="search-pill" id="globalSearchTrigger">
+        <span>⌕</span> Search
+        <kbd>⌘K</kbd>
+      </div>
+      <button class="btn-new-idea" id="topNewBtn">
+        <span class="btn-shimmer"></span>
+        ✦ New Idea
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="view active" id="view-dashboard">
+    <div class="page-hero">
+      <div class="hero-text">
+        <h1 class="hero-title">Your Idea Portfolio <span class="hero-accent" id="heroDate"></span></h1>
+        <p class="hero-sub">Evaluate every startup idea with rigorous, structured analysis.</p>
+      </div>
+      <div class="filter-bar" id="filterBar">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="Commit fully">✓ Committed</button>
+        <button class="filter-btn" data-filter="Keep exploring">~ Exploring</button>
+        <button class="filter-btn" data-filter="Discard">✕ Discarded</button>
+        <button class="filter-btn" data-filter="Strong">⭐ Strong</button>
+      </div>
+    </div>
+
+    <div class="kpi-row" id="kpiRow">
+      <div class="kpi-card kpi-accent"><div class="kpi-icon">◈</div><div class="kpi-val" id="kpiTotal">0</div><div class="kpi-label">Total Ideas</div><div class="kpi-trend" id="kpiTrend"></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="color:var(--success)">✦</div><div class="kpi-val" id="kpiStrong">0</div><div class="kpi-label">Strong Ideas</div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="color:var(--accent2)">◎</div><div class="kpi-val" id="kpiAvg">—</div><div class="kpi-label">Avg Score</div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="color:var(--warn)">🔥</div><div class="kpi-val" id="kpiCommit">0</div><div class="kpi-label">Committed</div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="color:var(--pink)">⚡</div><div class="kpi-val" id="kpiConviction">—</div><div class="kpi-label">Avg Conviction</div></div>
+    </div>
+
+    <div class="tag-filter-row" id="tagFilterRow"></div>
+
+    <div class="ideas-masonry" id="ideasGrid">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-graphic">
+          <svg viewBox="0 0 100 80" width="80"><polygon points="50,5 85,25 85,55 50,75 15,55 15,25" fill="none" stroke="var(--border-bright)" stroke-width="1" stroke-dasharray="4 3"/><polygon points="50,18 72,31 72,49 50,62 28,49 28,31" fill="none" stroke="var(--border)" stroke-width="1"/><circle cx="50" cy="40" r="6" fill="var(--accent)" opacity="0.3"/></svg>
+        </div>
+        <h3>No ideas yet</h3>
+        <p>Start evaluating your first startup idea using the 8-phase framework.</p>
+        <button class="btn-primary glow" onclick="switchView('new-idea')">✦ Add First Idea</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ NEW / EDIT IDEA ============ -->
+  <section class="view" id="view-new-idea">
+    <div class="form-layout">
+      <div class="form-sidebar-nav">
+        <div class="fsn-title">PHASES</div>
+        <ul id="phaseNavList"></ul>
+        <div class="fsn-score-preview" id="fsnScore">
+          <div class="fsn-score-label">Problem Score</div>
+          <div class="fsn-score-val" id="fsnScoreVal">—</div>
+        </div>
+      </div>
+      <div class="form-main">
+        <div class="form-topbar">
+          <div>
+            <h2 class="form-title" id="formTitle">Evaluate New Idea</h2>
+            <div class="form-progress-wrap">
+              <div class="form-progress-track"><div class="form-progress-fill" id="formProgressFill"></div></div>
+              <span class="form-phase-label" id="formPhaseLabel">Phase 1 of 8</span>
+            </div>
+          </div>
+        </div>
+        <form id="ideaForm"></form>
+        <div class="form-footer-nav">
+          <button class="btn-ghost" id="btnPrev" onclick="changePhase(-1)">← Prev</button>
+          <div class="phase-dots-mini" id="phaseDotsRow"></div>
+          <button class="btn-accent" id="btnNext" onclick="changePhase(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DETAIL ============ -->
+  <section class="view" id="view-detail">
+    <div class="detail-topbar">
+      <button class="btn-back" onclick="switchView('dashboard')">← Back</button>
+      <div class="detail-actions-row">
+        <button class="btn-ghost" id="detailAIBtn">✦ AI Analysis</button>
+        <button class="btn-ghost" id="detailExportBtn">↓ Export PDF</button>
+        <button class="btn-ghost" id="detailEditBtn">✎ Edit</button>
+        <button class="btn-danger" id="detailDeleteBtn">✕ Delete</button>
+      </div>
+    </div>
+    <div id="detailContent"></div>
+    <!-- AI Analysis Panel -->
+    <div class="ai-panel glass" id="aiPanel" style="display:none;">
+      <div class="ai-panel-header">
+        <div class="ai-logo-row"><span class="ai-dot"></span> AI Analysis — Powered by Claude</div>
+        <button class="ai-close" onclick="closeAIPanel()">✕</button>
+      </div>
+      <div class="ai-body" id="aiBody"><div class="ai-loading"><div class="ai-spinner"></div> Analysing your idea…</div></div>
+    </div>
+  </section>
+
+  <!-- ============ LEADERBOARD ============ -->
+  <section class="view" id="view-leaderboard">
+    <div class="page-hero"><h1 class="hero-title">Leaderboard</h1><p class="hero-sub">Your ideas ranked by problem score & conviction.</p></div>
+    <div id="leaderboardContent"></div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section class="view" id="view-compare">
+    <div class="page-hero"><h1 class="hero-title">Compare Ideas</h1><p class="hero-sub">Head-to-head deep analysis.</p></div>
+    <div class="compare-selectors">
+      <div class="compare-sel-wrap">
+        <label class="sel-label">IDEA A</label>
+        <select class="compare-select glass" id="compareA"><option value="">— Select —</option></select>
+      </div>
+      <div class="compare-vs-badge">VS</div>
+      <div class="compare-sel-wrap">
+        <label class="sel-label">IDEA B</label>
+        <select class="compare-select glass" id="compareB"><option value="">— Select —</option></select>
+      </div>
+    </div>
+    <div id="compareContent"></div>
+  </section>
+
+  <!-- ============ ANALYTICS ============ -->
+  <section class="view" id="view-analytics">
+    <div class="page-hero"><h1 class="hero-title">Portfolio Analytics</h1><p class="hero-sub">Deep insights across all your ideas.</p></div>
+    <div class="analytics-grid" id="analyticsGrid"></div>
+  </section>
+
+</main>
+
+<!-- GLOBAL SEARCH MODAL -->
+<div class="search-modal-overlay" id="searchOverlay" onclick="closeSearch()"></div>
+<div class="search-modal glass" id="searchModal">
+  <div class="search-modal-bar">
+    <span class="sm-icon">⌕</span>
+    <input type="text" id="globalSearch" placeholder="Search ideas, insights, domains…" autocomplete="off">
+    <kbd onclick="closeSearch()">ESC</kbd>
+  </div>
+  <div class="search-results" id="searchResults"></div>
+</div>
+
+<!-- TOAST -->
+<div class="toast-stack" id="toastStack"></div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmOverlay" style="display:none">
+  <div class="modal glass">
+    <div class="modal-title" id="confirmTitle">Confirm</div>
+    <div class="modal-body" id="confirmBody"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="confirmCancel">Cancel</button>
+      <button class="btn-danger" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="mobile-bottom-nav" id="mobileBottomNav">
+  <button class="mbn-item active" data-view="dashboard" onclick="mbnSwitch(this,'dashboard')">
+    <span class="mbn-dot"><span class="mbn-icon">◈</span></span>
+    <span class="mbn-label">Home</span>
+  </button>
+  <button class="mbn-item" data-view="leaderboard" onclick="mbnSwitch(this,'leaderboard')">
+    <span class="mbn-dot"><span class="mbn-icon">◉</span></span>
+    <span class="mbn-label">Rank</span>
+  </button>
+  <button class="mbn-item" data-view="compare" onclick="mbnSwitch(this,'compare')">
+    <span class="mbn-dot"><span class="mbn-icon">⇄</span></span>
+    <span class="mbn-label">Compare</span>
+  </button>
+  <button class="mbn-item" data-view="analytics" onclick="mbnSwitch(this,'analytics')">
+    <span class="mbn-dot"><span class="mbn-icon">▦</span></span>
+    <span class="mbn-label">Stats</span>
+  </button>
+  <button class="mbn-item" onclick="toggleSidebar()">
+    <span class="mbn-dot"><span class="mbn-icon">☰</span></span>
+    <span class="mbn-label">Menu</span>
+  </button>
+</nav>
+
+<!-- FAB: New Idea (mobile only) -->
+<button class="fab-new" id="fabNew" onclick="newIdeaAction()" title="New Idea">＋</button>
+
+<script src="app.js"></script>
+</body>
+</html>
