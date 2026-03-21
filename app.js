@@ -80,6 +80,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   updateHeroDate();
   applyTheme();
+  initChatbot();
 });
 
 function renderAll() {
@@ -135,7 +136,7 @@ function setupEventListeners() {
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); openSearch(); }
-    if (e.key==='Escape') { closeSearch(); closeAIPanel(); }
+    if (e.key==='Escape') { closeSearch(); closeAIPanel(); closeChat(); }
   });
   // Sidebar overlay
   document.getElementById('sidebarOverlay')?.addEventListener('click', () => {
@@ -191,8 +192,7 @@ function switchView(view, id) {
   const titles = { dashboard:'Dashboard','new-idea':'New Idea',leaderboard:'Leaderboard',compare:'Compare',analytics:'Analytics',detail:'Idea Detail' };
   document.getElementById('bcCurrent').textContent = titles[view] || view;
   closeSidebar();
-  // Lazy init charts for analytics
-  if (view==='analytics') setTimeout(renderAnalyticsCharts, 80);
+  if (view === 'analytics') setTimeout(renderAnalyticsCharts, 80);
 }
 
 // ===================== MOBILE BOTTOM NAV SYNC =====================
@@ -1169,13 +1169,81 @@ function destroyAnalyticsCharts() {
 }
 
 // ===================== AI ANALYSIS =====================
-async function runAIAnalysis() {
-  const idea = ideas.find(i=>i.id===currentIdeaId); if(!idea) return;
-  const panel = document.getElementById('aiPanel');
-  panel.style.display = 'flex'; panel.style.flexDirection = 'column';
-  document.getElementById('aiBody').innerHTML = '<div class="ai-loading"><div class="ai-spinner"></div> Claude is analysing your idea…</div>';
+// ===================== GEMINI API KEY MANAGEMENT =====================
+// Key is saved permanently in localStorage — only cleared if user explicitly changes it
+function getGeminiKey() {
+  return localStorage.getItem('if_gemini_key') || '';
+}
+function saveGeminiKey(key) {
+  localStorage.setItem('if_gemini_key', key.trim());
+}
 
-  const prompt = `You are a world-class venture capital analyst and startup mentor. Analyse the following startup idea rigorously and return structured, actionable feedback.
+// Gemini 2.0 Flash Lite — highest free quota, fast, capable
+const GEMINI_MODEL  = 'gemini-2.0-flash-lite';
+const GEMINI_BASE   = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// Prevent duplicate simultaneous requests
+let _geminiInFlight = false;
+
+function geminiURL(apiKey) {
+  return `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+}
+
+// ===================== AI ANALYSIS (Google Gemini — FREE) =====================
+async function runAIAnalysis() {
+  const idea = ideas.find(i => i.id === currentIdeaId);
+  if (!idea) return;
+
+  const panel = document.getElementById('aiPanel');
+  panel.style.display = 'flex';
+  panel.style.flexDirection = 'column';
+
+  // If no key saved → show one-time setup screen
+  const savedKey = getGeminiKey();
+  if (!savedKey) {
+    showGeminiKeySetup();
+    return;
+  }
+
+  // Show cached result instantly if available
+  if (idea.aiAnalysis) {
+    renderAIPanel(idea.aiAnalysis, idea);
+    const body = document.getElementById('aiBody');
+    const bar = document.createElement('div');
+    bar.style.cssText = 'margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center';
+    bar.innerHTML = `
+      <span style="font-size:11px;color:var(--text3)">✓ Cached result</span>
+      <button onclick="clearCacheAndReanalyse()" style="font-size:11px;padding:4px 12px;border-radius:99px;background:var(--accent-dim);border:1px solid rgba(0,245,200,0.2);color:var(--accent);cursor:pointer;font-family:var(--font-b)">↺ Re-analyse</button>
+    `;
+    body.prepend(bar);
+    return;
+  }
+
+  await callGeminiAPI(idea, savedKey);
+}
+
+async function clearCacheAndReanalyse() {
+  const idx = ideas.findIndex(i => i.id === currentIdeaId);
+  if (idx !== -1) { ideas[idx].aiAnalysis = null; persist(); }
+  const savedKey = getGeminiKey();
+  if (!savedKey) { showGeminiKeySetup(); return; }
+  const idea = ideas.find(i => i.id === currentIdeaId);
+  if (idea) await callGeminiAPI(idea, savedKey);
+}
+
+async function callGeminiAPI(idea, apiKey) {
+  if (_geminiInFlight) { showToast('Analysis already running…', 'info'); return; }
+  _geminiInFlight = true;
+  document.getElementById('aiBody').innerHTML = `
+    <div class="ai-loading">
+      <div class="ai-spinner"></div>
+      <div>
+        <div style="color:var(--text);font-size:12.5px;font-weight:500">Gemini is analysing your idea…</div>
+        <div style="color:var(--text3);font-size:11px;margin-top:3px">Usually takes 5–10 seconds</div>
+      </div>
+    </div>`;
+
+  const prompt = `You are a world-class venture capital analyst and startup mentor. Analyse the following startup idea and return ONLY a raw JSON object — no markdown, no code fences, no explanation.
 
 IDEA: ${idea.name}
 DOMAIN: ${(idea.domains||[]).join(', ')||'Not specified'}
@@ -1190,70 +1258,255 @@ CONVICTION: ${idea.conviction}/10
 7-FILTER RATING: ${idea.overallFilter||'Not rated'}
 FINAL DECISION: ${idea.finalDecision||'Not decided'}
 
-Provide a thorough, honest VC-level critique in the following JSON format — respond with ONLY valid JSON and nothing else:
-{
-  "overallRating": "Strong Bet | Promising | Needs Work | Risky | Pass",
-  "aiScore": 0-100,
-  "oneLiner": "one punchy sentence describing the idea",
-  "strengths": ["strength 1", "strength 2", "strength 3"],
-  "weaknesses": ["weakness 1", "weakness 2", "weakness 3"],
-  "opportunities": ["opportunity 1", "opportunity 2"],
-  "threats": ["threat 1", "threat 2"],
-  "vcPerspective": "2-3 sentence VC gut-check",
-  "nextSteps": ["step 1", "step 2", "step 3"],
-  "keyQuestion": "The single most important question this founder must answer"
-}`;
+Return exactly this JSON structure and nothing else:
+{"overallRating":"Strong Bet","aiScore":85,"oneLiner":"one punchy sentence","strengths":["s1","s2","s3"],"weaknesses":["w1","w2","w3"],"opportunities":["o1","o2"],"threats":["t1","t2"],"vcPerspective":"2-3 sentence VC gut-check","nextSteps":["step1","step2","step3"],"keyQuestion":"the single most important question this founder must answer"}
+overallRating must be exactly one of: Strong Bet, Promising, Needs Work, Risky, Pass
+aiScore must be a number 0-100.`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+    const res = await fetch(geminiURL(apiKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{role:'user',content:prompt}]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1500
+          // Note: responseMimeType NOT used — causes model-not-found on some regions
+        }
       })
     });
+
+    if (!res.ok) {
+      _geminiInFlight = false;
+      const errData = await res.json().catch(() => ({}));
+      const errMsg  = errData?.error?.message || `HTTP ${res.status}`;
+      const status  = res.status;
+
+      if (status === 429 || errMsg.toLowerCase().includes('quota')) {
+        showAIError(`
+          <strong>Daily quota exceeded</strong><br><br>
+          Your free Gemini key has hit its daily limit. This resets every 24 hours.<br><br>
+          <strong>Quick fix:</strong> Go to
+          <a href="https://aistudio.google.com/app/apikey" target="_blank"
+            style="color:var(--accent)">aistudio.google.com/app/apikey</a>
+          and create a <strong>new API key</strong> — each key gets a fresh daily quota.
+          Then click <em>Change Key</em> below and paste the new one.
+        `);
+      } else if (status === 400 && (errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('api_key'))) {
+        showGeminiKeyError('API key not recognised by Google. Please generate a fresh key at aistudio.google.com/app/apikey');
+      } else if (status === 403) {
+        showGeminiKeyError('Permission denied. Make sure the "Generative Language API" is enabled for this key in Google Cloud Console.');
+      } else if (errMsg.includes('not found') || errMsg.includes('not supported')) {
+        showAIError(`Model unavailable in your region.<br><small style="color:var(--text3)">${errMsg}</small>`);
+      } else {
+        showAIError(`Gemini error (${status}): ${errMsg}`);
+      }
+      return;
+    }
+
     const data = await res.json();
-    const raw = data.content?.map(b=>b.type==='text'?b.text:'').join('')||'';
-    const clean = raw.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(clean);
+    const raw  = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    if (!raw) {
+      const finishReason = data?.candidates?.[0]?.finishReason || 'UNKNOWN';
+      showAIError(`Gemini returned no content (finishReason: ${finishReason}). Please try again.`);
+      return;
+    }
+
+    // Strip any accidental markdown fences and parse
+    const clean = raw.replace(/```json|```/gi, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (_) {
+      // Fallback: try to pull first {...} block from response
+      const match = clean.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { parsed = JSON.parse(match[0]); }
+        catch (_2) { showAIError('Could not parse Gemini response. Please try again.'); return; }
+      } else {
+        showAIError('Gemini response was not valid JSON. Please try again.');
+        return;
+      }
+    }
+
     renderAIPanel(parsed, idea);
-    // Cache
-    const idx = ideas.findIndex(i=>i.id===currentIdeaId);
-    if(idx!==-1){ ideas[idx].aiAnalysis = parsed; persist(); }
-  } catch(e) {
-    document.getElementById('aiBody').innerHTML = `<div style="color:var(--danger);font-size:12px">
-      <div style="font-weight:600;margin-bottom:8px">Analysis failed</div>
-      <div>Could not reach the AI. Check your API key configuration and try again.</div>
-    </div>`;
+    showToast('AI analysis complete! ✓', 'success');
+    _geminiInFlight = false;
+
+    // Cache so we don't re-call API on every open
+    const idx = ideas.findIndex(i => i.id === currentIdeaId);
+    if (idx !== -1) { ideas[idx].aiAnalysis = parsed; persist(); }
+
+  } catch (e) {
+    _geminiInFlight = false;
+    if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
+      showAIError('Network error — check your internet connection and try again.');
+    } else {
+      showAIError(`Unexpected error: ${e.message}`);
+    }
   }
 }
-function renderAIPanel(data, idea) {
-  const ratingColor = {'Strong Bet':'var(--success)','Promising':'var(--accent)','Needs Work':'var(--warn)','Risky':'var(--danger)','Pass':'var(--danger)'}[data.overallRating]||'var(--text2)';
+
+// ---- Gemini Key Setup Screen (shown only once until user explicitly changes key) ----
+function showGeminiKeySetup(errorMsg = '') {
   document.getElementById('aiBody').innerHTML = `
-    <div style="text-align:center;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-      <div class="ai-score-badge" style="color:${ratingColor};background:rgba(0,0,0,0.2);border:1px solid ${ratingColor}40;margin-bottom:8px">${data.aiScore}/100</div>
-      <div style="font-family:var(--font-d);font-size:16px;font-weight:700;color:${ratingColor}">${data.overallRating}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:6px;font-style:italic">"${data.oneLiner}"</div>
-    </div>
-    <div class="ai-section"><div class="ai-section-title">✓ Strengths</div>
-      <div class="ai-tags">${(data.strengths||[]).map(s=>`<span class="ai-tag">${s}</span>`).join('')}</div></div>
-    <div class="ai-section"><div class="ai-section-title">⚠ Weaknesses</div>
-      <div class="ai-tags">${(data.weaknesses||[]).map(s=>`<span class="ai-tag warn">${s}</span>`).join('')}</div></div>
-    <div class="ai-section"><div class="ai-section-title">→ Opportunities</div>
-      <div class="ai-tags">${(data.opportunities||[]).map(s=>`<span class="ai-tag">${s}</span>`).join('')}</div></div>
-    <div class="ai-section"><div class="ai-section-title">✕ Threats</div>
-      <div class="ai-tags">${(data.threats||[]).map(s=>`<span class="ai-tag danger">${s}</span>`).join('')}</div></div>
-    <div class="ai-section"><div class="ai-section-title">🏦 VC Perspective</div>
-      <div class="ai-section"><p>${data.vcPerspective||'—'}</p></div></div>
-    <div class="ai-section"><div class="ai-section-title">▶ Next Steps</div>
-      ${(data.nextSteps||[]).map((s,i)=>`<div style="margin-bottom:6px;font-size:12px;color:var(--text2)"><strong style="color:var(--accent)">${i+1}.</strong> ${s}</div>`).join('')}</div>
-    <div style="padding:12px;background:var(--accent-dim);border:1px solid rgba(0,245,200,0.15);border-radius:var(--r-sm);margin-top:6px">
-      <div style="font-size:9px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Key Question to Answer</div>
-      <div style="font-size:12.5px;color:var(--text);font-style:italic">"${data.keyQuestion}"</div>
+    ${errorMsg ? `<div style="padding:10px 14px;background:var(--danger-dim);border:1px solid rgba(255,77,106,0.25);border-radius:var(--r-sm);margin-bottom:16px;font-size:12px;color:var(--danger)">${errorMsg}</div>` : ''}
+    <div class="gemini-setup">
+      <div class="gemini-setup-logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5L12 2Z" fill="url(#g1)"/>
+          <defs><linearGradient id="g1" x1="4" y1="2" x2="20" y2="18" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00f5c8"/><stop offset="100%" stop-color="#7c6bff"/>
+          </linearGradient></defs>
+        </svg>
+      </div>
+      <div class="gemini-setup-title">Connect Gemini AI</div>
+      <div class="gemini-setup-sub">Get a <strong>free</strong> API key — no credit card needed. Key is saved in your browser.</div>
+
+      <div class="gemini-steps">
+        <div class="gemini-step">
+          <span class="gs-num">1</span>
+          <span>Open <a href="https://aistudio.google.com/app/apikey" target="_blank" class="gs-link">aistudio.google.com/app/apikey</a></span>
+        </div>
+        <div class="gemini-step">
+          <span class="gs-num">2</span>
+          <span>Sign in with Google → click <strong>"Create API Key"</strong></span>
+        </div>
+        <div class="gemini-step">
+          <span class="gs-num">3</span>
+          <span>Copy &amp; paste the key below, then click Connect</span>
+        </div>
+      </div>
+
+      <div class="gemini-key-input-wrap">
+        <input
+          type="password"
+          id="geminiKeyInput"
+          class="gemini-key-input"
+          placeholder="Paste your key here (AIza...)"
+          autocomplete="off"
+          spellcheck="false"
+          onkeydown="if(event.key==='Enter') connectGeminiKey()"
+        >
+        <button class="gemini-eye-btn" onclick="toggleKeyVisibility()" title="Show/hide">👁</button>
+      </div>
+      <div class="gemini-key-hint">🔒 Stored only in your browser's localStorage — never sent anywhere except Google.</div>
+
+      <button class="gemini-connect-btn" id="geminiConnectBtn" onclick="connectGeminiKey()">
+        <span class="btn-shimmer"></span>
+        ✦ Save Key &amp; Analyse
+      </button>
+      <div class="gemini-free-badge">🎉 Free · 15 req/min · 1M tokens/day · No card needed</div>
+    </div>`;
+
+  // Auto-focus the input
+  setTimeout(() => document.getElementById('geminiKeyInput')?.focus(), 100);
+}
+
+function toggleKeyVisibility() {
+  const el = document.getElementById('geminiKeyInput');
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+async function connectGeminiKey() {
+  const input = document.getElementById('geminiKeyInput');
+  if (!input) return;
+  const key = input.value.trim();
+
+  if (!key) { showToast('Please paste your API key first.', 'error'); input.focus(); return; }
+  if (!key.startsWith('AIza')) {
+    showToast('Gemini API keys start with "AIza…" — check your key.', 'error');
+    input.focus(); return;
+  }
+  if (key.length < 30) {
+    showToast('Key looks too short — please paste the full key.', 'error');
+    input.focus(); return;
+  }
+
+  // Save immediately — NO validation test call (wastes quota)
+  saveGeminiKey(key);
+  showToast('Key saved! ✓ Running analysis…', 'success');
+
+  const idea = ideas.find(i => i.id === currentIdeaId);
+  if (idea) await callGeminiAPI(idea, key);
+}
+
+function showAIError(htmlMsg) {
+  document.getElementById('aiBody').innerHTML = `
+    <div style="padding:16px;background:var(--danger-dim);border:1px solid rgba(255,77,106,0.2);border-radius:var(--r-sm)">
+      <div style="font-family:var(--font-d);font-size:13px;font-weight:700;color:var(--danger);margin-bottom:8px">Analysis Failed</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.75">${htmlMsg}</div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button onclick="clearCacheAndReanalyse()" style="padding:7px 16px;border-radius:var(--r-sm);background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:var(--font-b);font-size:11.5px;cursor:pointer">↺ Try Again</button>
+        <button onclick="changeGeminiKey()" style="padding:7px 16px;border-radius:var(--r-sm);background:var(--bg3);border:1px solid var(--border);color:var(--text3);font-family:var(--font-b);font-size:11.5px;cursor:pointer">⚙ Change Key</button>
+      </div>
     </div>`;
 }
+
+function showGeminiKeyError(msg) {
+  localStorage.removeItem('if_gemini_key');
+  showGeminiKeySetup(msg);
+}
+
+function renderAIPanel(data, idea) {
+  const ratingColor = {
+    'Strong Bet': 'var(--success)',
+    'Promising':  'var(--accent)',
+    'Needs Work': 'var(--warn)',
+    'Risky':      'var(--danger)',
+    'Pass':       'var(--danger)'
+  }[data.overallRating] || 'var(--text2)';
+
+  document.getElementById('aiBody').innerHTML = `
+    <div class="ai-result-header">
+      <div class="ai-score-badge" style="color:${ratingColor};border-color:${ratingColor}40">${data.aiScore}/100</div>
+      <div class="ai-rating" style="color:${ratingColor}">${data.overallRating}</div>
+      <div class="ai-one-liner">"${data.oneLiner}"</div>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">✓ Strengths</div>
+      <div class="ai-tags">${(data.strengths||[]).map(s=>`<span class="ai-tag">${s}</span>`).join('')}</div>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">⚠ Weaknesses</div>
+      <div class="ai-tags">${(data.weaknesses||[]).map(s=>`<span class="ai-tag warn">${s}</span>`).join('')}</div>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">→ Opportunities</div>
+      <div class="ai-tags">${(data.opportunities||[]).map(s=>`<span class="ai-tag">${s}</span>`).join('')}</div>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">✕ Threats</div>
+      <div class="ai-tags">${(data.threats||[]).map(s=>`<span class="ai-tag danger">${s}</span>`).join('')}</div>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">🏦 VC Perspective</div>
+      <p style="font-size:12px;color:var(--text2);line-height:1.75">${data.vcPerspective||'—'}</p>
+    </div>
+    <div class="ai-section">
+      <div class="ai-section-title">▶ Next Steps</div>
+      ${(data.nextSteps||[]).map((s,i)=>`
+        <div style="display:flex;gap:8px;margin-bottom:7px;font-size:12px;color:var(--text2)">
+          <strong style="color:var(--accent);flex-shrink:0">${i+1}.</strong>${s}
+        </div>`).join('')}
+    </div>
+    <div class="ai-key-q">
+      <div class="ai-key-q-label">KEY QUESTION TO ANSWER</div>
+      <div class="ai-key-q-text">"${data.keyQuestion}"</div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="clearCacheAndReanalyse()" style="flex:1;padding:8px;border-radius:var(--r-sm);background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;font-family:var(--font-b);font-size:11px">↺ Re-analyse</button>
+      <button onclick="changeGeminiKey()" style="flex:1;padding:8px;border-radius:var(--r-sm);background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;font-family:var(--font-b);font-size:11px">⚙ Change Key</button>
+    </div>`;
+}
+
+function changeGeminiKey() {
+  localStorage.removeItem('if_gemini_key');
+  showGeminiKeySetup();
+}
+
 function closeAIPanel() {
   document.getElementById('aiPanel').style.display = 'none';
 }
@@ -1403,6 +1656,323 @@ function showToast(msg, type='') {
 
 // ===================== UTILS =====================
 function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ===================== FLOATING AI CHATBOT =====================
+let chatHistory  = [];   // [{role:'user'|'model', parts:[{text}]}]
+let chatInFlight = false;
+let chatIsOpen   = false;
+
+function initChatbot() {
+  updateChatIdeaSelector();
+  // If key already saved, don't show setup on open — go straight to chat
+}
+
+function updateChatIdeaSelector() {
+  const sel = document.getElementById('chatIdeaContext');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">All ideas</option>' +
+    ideas.map(i => `<option value="${i.id}">${i.name||'Untitled'}</option>`).join('');
+  if (prev) sel.value = prev;
+}
+
+/* ---------- open / close / toggle ---------- */
+function toggleChat() {
+  chatIsOpen ? closeChat() : openChat();
+}
+function openChat() {
+  chatIsOpen = true;
+  document.getElementById('chatWindow').classList.add('open');
+  document.getElementById('chatFab').classList.add('open');
+  document.getElementById('chatFabBadge').style.display = 'none';
+  // Replace icon with X
+  document.getElementById('chatFabIcon').innerHTML =
+    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+       <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+     </svg>`;
+  updateChatIdeaSelector();
+  // If no API key → show inline key setup in chat window
+  if (!getGeminiKey()) showChatKeySetup();
+  setTimeout(() => document.getElementById('chatInput')?.focus(), 300);
+}
+function closeChat() {
+  chatIsOpen = false;
+  document.getElementById('chatWindow').classList.remove('open');
+  document.getElementById('chatFab').classList.remove('open');
+  document.getElementById('chatFabIcon').innerHTML =
+    `<svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+     </svg>`;
+}
+
+/* ---------- suggestion chips ---------- */
+function useChip(btn) {
+  const text = btn.textContent;
+  const input = document.getElementById('chatInput');
+  if (input) { input.value = text; autoResizeChat(input); input.focus(); }
+}
+
+/* ---------- keyboard ---------- */
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+}
+function autoResizeChat(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+/* ---------- API key setup inline inside chat ---------- */
+function showChatKeySetup() {
+  const box = document.getElementById('chatMessages');
+  box.innerHTML = `
+    <div class="chat-key-setup">
+      <div class="chat-key-setup-title">⚡ Connect Gemini AI (Free)</div>
+      <div class="chat-key-setup-sub">
+        Get a free API key at
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com/app/apikey</a>
+        — no credit card needed. Paste it below and it saves permanently.
+      </div>
+      <div class="chat-key-input-row">
+        <input
+          type="password"
+          id="chatKeyInput"
+          class="chat-key-input"
+          placeholder="AIza…"
+          autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();saveChatKey()}"
+        >
+        <button class="chat-key-save-btn" onclick="saveChatKey()">Save</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3)">🔒 Stored only in your browser. Never shared.</div>
+    </div>`;
+  setTimeout(() => document.getElementById('chatKeyInput')?.focus(), 100);
+}
+
+function saveChatKey() {
+  const input = document.getElementById('chatKeyInput');
+  const key   = input?.value?.trim() || '';
+  if (!key) { showToast('Please paste your API key.', 'error'); return; }
+  if (!key.startsWith('AIza')) { showToast('Key should start with "AIza"', 'error'); return; }
+  if (key.length < 30) { showToast('Key looks too short.', 'error'); return; }
+  saveGeminiKey(key);
+  showToast('API key saved! ✓', 'success');
+  // Reset chat to welcome screen
+  clearChat();
+}
+
+/* ---------- changeGeminiKey (works from anywhere) ---------- */
+function changeGeminiKey() {
+  localStorage.removeItem('if_gemini_key');
+  // If chat is open, show setup in chat
+  if (chatIsOpen) {
+    showChatKeySetup();
+  } else {
+    // Open chat and show setup
+    openChat();
+    setTimeout(showChatKeySetup, 320);
+  }
+}
+
+/* ---------- send message ---------- */
+async function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const text  = input?.value?.trim();
+  if (!text || chatInFlight) return;
+
+  const key = getGeminiKey();
+  if (!key) {
+    showChatKeySetup();
+    return;
+  }
+
+  // Clear input immediately
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Append user bubble
+  appendChatMsg('user', text);
+
+  // Add to history
+  chatHistory.push({ role:'user', parts:[{ text }] });
+
+  // Show typing
+  const typingId = showTyping();
+  chatInFlight = true;
+  const sendBtn = document.getElementById('chatSendBtn');
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const systemCtx = buildChatSystemContext();
+
+    // Inject system context into the first message of the contents array
+    const contents = chatHistory.map((msg, i) => {
+      if (i === 0 && msg.role === 'user') {
+        return { role:'user', parts:[{ text: systemCtx + '\n\nUser: ' + msg.parts[0].text }] };
+      }
+      return msg;
+    });
+
+    const res = await fetch(geminiURL(key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents,
+        generationConfig: { temperature:0.8, maxOutputTokens:600 }
+      })
+    });
+
+    removeTyping(typingId);
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const errMsg  = errData?.error?.message || `HTTP ${res.status}`;
+      chatInFlight  = false;
+      if (sendBtn) sendBtn.disabled = false;
+      chatHistory.pop(); // remove failed user message
+
+      if (res.status === 429 || errMsg.toLowerCase().includes('quota')) {
+        appendChatMsg('ai', `⚠️ **Daily quota exceeded.**\n\nYour free Gemini key has hit its daily limit. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) and create a new key — then click **⚙** above to update it.`);
+      } else if (res.status === 400 || res.status === 403) {
+        appendChatMsg('ai', `⚠️ **Invalid API key.** Please click **⚙** above and enter a valid Gemini API key.`);
+        localStorage.removeItem('if_gemini_key');
+      } else {
+        appendChatMsg('ai', `⚠️ **Error (${res.status}):** ${errMsg}`);
+      }
+      return;
+    }
+
+    const data  = await res.json();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    if (!reply) {
+      appendChatMsg('ai', `I couldn't generate a response. Please try again.`);
+      chatHistory.pop();
+    } else {
+      appendChatMsg('ai', reply);
+      chatHistory.push({ role:'model', parts:[{ text: reply }] });
+      // Cap history at 20 exchanges to avoid token bloat
+      if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+    }
+
+  } catch (e) {
+    removeTyping(typingId);
+    appendChatMsg('ai', `⚠️ **Network error.** Please check your connection.`);
+    chatHistory.pop();
+  }
+
+  chatInFlight = false;
+  if (sendBtn) sendBtn.disabled = false;
+  document.getElementById('chatInput')?.focus();
+}
+
+function buildChatSystemContext() {
+  const selId     = document.getElementById('chatIdeaContext')?.value || '';
+  const focusIdea = selId ? ideas.find(i => i.id === selId) : null;
+
+  let ctx = `You are an expert startup advisor and VC mentor inside IdeaForge Pro.
+You have full access to the user's startup idea portfolio. Be specific, actionable, honest, concise.
+Use markdown: **bold** for key points, bullet lists for clarity. Under 250 words unless detail is needed.
+`;
+
+  if (focusIdea) {
+    const s = totalScore(focusIdea);
+    ctx += `\nFOCUSED IDEA: "${focusIdea.name}"
+Domain: ${(focusIdea.domains||[]).join(', ')||'N/A'} | Score: ${s}/25 | Conviction: ${focusIdea.conviction}/10 | Decision: ${focusIdea.finalDecision||'Undecided'}
+Problem: ${focusIdea.problemUser} struggles with ${focusIdea.problemBecause} because ${focusIdea.problemDef}
+Solution: We help ${focusIdea.solutionHelp} achieve ${focusIdea.solutionAchieve} by ${focusIdea.solutionBy}, unlike ${focusIdea.solutionUnlike}
+Market: ${focusIdea.beachheadWho} → ${(focusIdea.marketPath||[]).join(' → ')}
+Biz: ${focusIdea.bizWho} pays ${focusIdea.bizPrice} for ${focusIdea.bizWhat}. Margin: ${focusIdea.grossMargin}. LTV/CAC: ${focusIdea.ltv||'N/A'}
+Moats: ${(focusIdea.moats||[]).join(', ')||'None'} | Tech: ${focusIdea.technologies||'N/A'} | MVP: ${focusIdea.mvp||'?'}
+Risks: ${(focusIdea.risks||[]).filter(Boolean).join('; ')||'None listed'}`;
+  } else if (ideas.length) {
+    ctx += `\nPORTFOLIO (${ideas.length} ideas):\n`;
+    ideas.forEach((idea, i) => {
+      ctx += `${i+1}. "${idea.name||'Untitled'}" — Score:${totalScore(idea)}/25, Conviction:${idea.conviction||'?'}/10, Decision:${idea.finalDecision||'Undecided'}, Domains:${(idea.domains||[]).join('/')||'N/A'}\n`;
+    });
+  } else {
+    ctx += `\nThe user has no ideas saved yet. Help them understand how to evaluate a startup idea.`;
+  }
+  return ctx;
+}
+
+/* ---------- DOM helpers ---------- */
+function appendChatMsg(role, text) {
+  const box = document.getElementById('chatMessages');
+  const welcome = box.querySelector('.chat-welcome, .chat-key-setup');
+  if (welcome) welcome.remove();
+
+  const div  = document.createElement('div');
+  div.className = `chat-msg ${role}`;
+  const time = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
+  const av   = role === 'ai'
+    ? `<div class="chat-avatar ai">AI</div>`
+    : `<div class="chat-avatar user-av">You</div>`;
+  const bub  = role === 'ai'
+    ? `<div class="chat-bubble">${markdownToHTML(text)}</div>`
+    : `<div class="chat-bubble">${escHTML(text)}</div>`;
+  div.innerHTML = av + `<div style="min-width:0">${bub}<div class="chat-meta">${time}</div></div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function showTyping() {
+  const box = document.getElementById('chatMessages');
+  const id  = 'typing-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'chat-msg ai'; div.id = id;
+  div.innerHTML = `<div class="chat-avatar ai">AI</div>
+    <div class="chat-bubble"><div class="chat-typing"><span></span><span></span><span></span></div></div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return id;
+}
+function removeTyping(id) { document.getElementById(id)?.remove(); }
+
+function clearChat() {
+  chatHistory = [];
+  const box   = document.getElementById('chatMessages');
+  box.innerHTML = `<div class="chat-welcome">
+    <div class="chat-welcome-icon">✦</div>
+    <div class="chat-welcome-title">Chat cleared</div>
+    <div class="chat-welcome-sub">Start a new conversation below.</div>
+  </div>`;
+}
+
+/* ---------- markdown → HTML (lightweight) ---------- */
+function markdownToHTML(raw) {
+  let t = raw
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/^#{1,4}\s+(.+)$/gm,'<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,'<a href="$2" target="_blank" style="color:var(--accent)">$1</a>');
+
+  // Lists
+  const lines = t.split('\n');
+  const out = []; let inList = false;
+  for (const line of lines) {
+    const li = line.match(/^\s*[-*•]\s+(.+)/);
+    const ol = line.match(/^\s*\d+\.\s+(.+)/);
+    if (li || ol) {
+      if (!inList) { out.push('<ul style="padding-left:16px;margin:4px 0">'); inList = true; }
+      out.push(`<li style="margin-bottom:3px">${(li||ol)[1]}</li>`);
+    } else {
+      if (inList) { out.push('</ul>'); inList = false; }
+      out.push(line);
+    }
+  }
+  if (inList) out.push('</ul>');
+
+  return out.join('\n')
+    .replace(/\n\n/g,'</p><p>')
+    .replace(/^(?!<[uop]|<li|<st|<em|<co|<a\s)(.+)$/gm,'<p>$1</p>')
+    .replace(/<p><\/p>/g,'')
+    .trim();
+}
+function escHTML(t) {
+  return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
 
 // ===================== PRESET SAMPLE =====================
 function loadPreset() {

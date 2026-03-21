@@ -172,7 +172,7 @@
     <!-- AI Analysis Panel -->
     <div class="ai-panel glass" id="aiPanel" style="display:none;">
       <div class="ai-panel-header">
-        <div class="ai-logo-row"><span class="ai-dot"></span> AI Analysis — Powered by Claude</div>
+        <div class="ai-logo-row"><span class="ai-dot"></span> AI Analysis — Powered by Gemini</div>
         <button class="ai-close" onclick="closeAIPanel()">✕</button>
       </div>
       <div class="ai-body" id="aiBody"><div class="ai-loading"><div class="ai-spinner"></div> Analysing your idea…</div></div>
@@ -262,6 +262,87 @@
 
 <!-- FAB: New Idea (mobile only) -->
 <button class="fab-new" id="fabNew" onclick="newIdeaAction()" title="New Idea">＋</button>
+
+<!-- ============================================================
+     FLOATING AI CHATBOT — accessible from every page
+============================================================ -->
+
+<!-- Chat toggle button -->
+<button class="chat-fab" id="chatFab" onclick="toggleChat()" title="AI Advisor">
+  <span class="chat-fab-icon" id="chatFabIcon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </span>
+  <span class="chat-fab-badge" id="chatFabBadge" style="display:none">1</span>
+  <span class="chat-fab-pulse"></span>
+</button>
+
+<!-- Floating chat window -->
+<div class="chat-window glass" id="chatWindow">
+  <!-- Header -->
+  <div class="chat-window-header">
+    <div class="chat-window-title">
+      <div class="chat-header-avatar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.5 8.5L20 10L13.5 11.5L12 18L10.5 11.5L4 10L10.5 8.5L12 2Z" fill="var(--accent)"/></svg>
+      </div>
+      <div>
+        <div class="chat-window-name">AI Advisor</div>
+        <div class="chat-window-status"><span class="chat-online-dot"></span> Powered by Gemini · Free</div>
+      </div>
+    </div>
+    <div class="chat-window-actions">
+      <select id="chatIdeaContext" title="Focus on idea">
+        <option value="">All ideas</option>
+      </select>
+      <button class="chat-hdr-btn" onclick="changeGeminiKey()" title="API Key settings">⚙</button>
+      <button class="chat-hdr-btn" onclick="clearChat()" title="Clear chat">🗑</button>
+      <button class="chat-hdr-btn chat-hdr-close" onclick="closeChat()" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- Suggestion chips -->
+  <div class="chat-chips-bar" id="chatChipsBar">
+    <button class="chat-chip" onclick="useChip(this)">Biggest risks?</button>
+    <button class="chat-chip" onclick="useChip(this)">Validate in 2 weeks</button>
+    <button class="chat-chip" onclick="useChip(this)">Best pricing strategy?</button>
+    <button class="chat-chip" onclick="useChip(this)">Compare my ideas</button>
+    <button class="chat-chip" onclick="useChip(this)">VC perspective</button>
+    <button class="chat-chip" onclick="useChip(this)">Find first customers</button>
+    <button class="chat-chip" onclick="useChip(this)">Top competitors?</button>
+    <button class="chat-chip" onclick="useChip(this)">Strongest moats?</button>
+  </div>
+
+  <!-- Messages -->
+  <div class="chat-messages" id="chatMessages">
+    <div class="chat-welcome">
+      <div class="chat-welcome-icon">✦</div>
+      <div class="chat-welcome-title">Your AI Startup Advisor</div>
+      <div class="chat-welcome-sub">I know all your ideas and evaluations. Ask me anything — validation, strategy, comparison, or brainstorming.</div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="chat-input-area">
+    <div class="chat-input-bar">
+      <textarea
+        id="chatInput"
+        class="chat-input"
+        placeholder="Ask anything about your ideas…"
+        rows="1"
+        onkeydown="chatKeydown(event)"
+        oninput="autoResizeChat(this)"
+      ></textarea>
+      <button class="chat-send-btn" id="chatSendBtn" onclick="sendChatMessage()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M22 2L11 13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="chat-input-hint">Enter to send · Shift+Enter new line</div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
