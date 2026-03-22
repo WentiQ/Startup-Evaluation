@@ -9,11 +9,94 @@
 <meta name="theme-color" content="#060608">
 <title>IdeaForge Pro — Advanced Startup Evaluation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@400;500;600;700&family=Cabinet+Grotesk:wght@300;400;500;700;800&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp }        from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAnalytics }         from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+                                  from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+  import { getFirestore, doc, collection, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, query, orderBy }
+                                  from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBEkwlM-itOLxSR52nIZo-Q-NCV3axBC9M",
+    authDomain:        "idea-forge-eabaf.firebaseapp.com",
+    projectId:         "idea-forge-eabaf",
+    storageBucket:     "idea-forge-eabaf.firebasestorage.app",
+    messagingSenderId: "304219569429",
+    appId:             "1:304219569429:web:13aacbb5e45e3783d07d1c",
+    measurementId:     "G-JPZPCBG0WZ"
+  };
+
+  const app       = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+  const auth      = getAuth(app);
+  const db        = getFirestore(app);
+  const provider  = new GoogleAuthProvider();
+
+  // ── expose to window so app.js can call them ──
+  window._firebase = {
+    auth, db, provider,
+    GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+    doc, collection, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, query, orderBy
+  };
+
+  // ── trigger auth state listener once SDK is ready ──
+  window.addEventListener('DOMContentLoaded', () => {
+    onAuthStateChanged(auth, user => {
+      if (window.onFirebaseAuthChange) window.onFirebaseAuthChange(user);
+    });
+  });
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+
+<!-- ============================================================
+     AUTH SCREEN — shown when not signed in
+============================================================ -->
+<div class="auth-overlay" id="authOverlay">
+  <canvas id="authCanvas"></canvas>
+  <div class="auth-card glass">
+    <div class="auth-logo">
+      <svg viewBox="0 0 40 40" width="48" height="48">
+        <polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+        <polygon points="20,8 30,14 30,26 20,32 10,26 10,14" fill="var(--accent)" opacity="0.15"/>
+        <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" fill="var(--accent)" font-size="13" font-weight="700" font-family="monospace">IF</text>
+      </svg>
+    </div>
+    <div class="auth-brand">IdeaForge <span class="auth-pro">PRO</span></div>
+    <div class="auth-tagline">Your AI-powered startup idea evaluation platform</div>
+
+    <div class="auth-features">
+      <div class="auth-feature"><span class="af-icon">🔒</span><span>Your ideas sync securely across all devices</span></div>
+      <div class="auth-feature"><span class="af-icon">✦</span><span>AI analysis powered by Gemini (free)</span></div>
+      <div class="auth-feature"><span class="af-icon">◈</span><span>8-phase evaluation framework</span></div>
+      <div class="auth-feature"><span class="af-icon">📊</span><span>Charts, leaderboard & portfolio analytics</span></div>
+    </div>
+
+    <button class="auth-google-btn" id="googleSignInBtn">
+      <svg width="20" height="20" viewBox="0 0 48 48">
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        <path fill="none" d="M0 0h48v48H0z"/>
+      </svg>
+      Continue with Google
+    </button>
+
+    <div class="auth-error" id="authError" style="display:none"></div>
+    <div class="auth-loading" id="authLoading" style="display:none">
+      <div class="ai-spinner"></div> Signing you in…
+    </div>
+
+    <div class="auth-footer">By continuing, you agree to our terms. Your data is stored securely in Firebase.</div>
+  </div>
+</div>
 
 <!-- PARTICLE CANVAS BG -->
 <canvas id="bgCanvas"></canvas>
@@ -59,6 +142,15 @@
   </div>
 
   <div class="sidebar-bottom">
+    <!-- User profile -->
+    <div class="sidebar-user" id="sidebarUser">
+      <img class="sidebar-user-avatar" id="sidebarAvatar" src="" alt="">
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name" id="sidebarUserName">Loading…</div>
+        <div class="sidebar-user-email" id="sidebarUserEmail"></div>
+      </div>
+      <button class="sidebar-signout-btn" id="signOutBtn" title="Sign out">⏻</button>
+    </div>
     <button class="btn-export-all" id="btnExportAll">↓ Export All Data</button>
     <div class="sidebar-version">v2.0 · IdeaForge Pro</div>
   </div>
@@ -77,6 +169,10 @@
       <span class="bc-current" id="bcCurrent">Dashboard</span>
     </nav>
     <div class="topbar-right">
+      <div class="sync-indicator synced" id="syncIndicator">
+        <span class="sync-dot"></span>
+        <span id="syncLabel">Synced</span>
+      </div>
       <div class="search-pill" id="globalSearchTrigger">
         <span>⌕</span> Search
         <kbd>⌘K</kbd>

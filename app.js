@@ -1,19 +1,183 @@
 /* ============================================================
-   IdeaForge Pro v2.0 — Advanced Application Logic
-   Features: AI Analysis, Charts, PDF Export, Leaderboard,
-   Global Search, Analytics, Theme Toggle, Particle BG,
-   Custom Cursor, Drag Reorder, Tags/Filter, Keyboard Shortcuts
+   IdeaForge Pro v2.0 — Firebase Edition
+   Auth: Google Sign-In | DB: Firestore (no localStorage for data)
    ============================================================ */
 
 // ===================== STATE =====================
-let ideas = JSON.parse(localStorage.getItem('if_ideas_v2') || '[]');
-let currentIdeaId = null;
-let currentPhase = 0;
-let editingId = null;
-let activeFilter = 'all';
-let activeTagFilter = null;
-let formData = {};
-let charts = {};
+let ideas          = [];
+let currentIdeaId  = null;
+let currentPhase   = 0;
+let editingId      = null;
+let activeFilter   = 'all';
+let activeTagFilter= null;
+let formData       = {};
+let charts         = {};
+let currentUser    = null;   // Firebase user object
+let _unsubIdeas    = null;   // Firestore real-time listener unsubscribe fn
+
+// ===================== FIREBASE HELPERS =====================
+function fb() { return window._firebase; }
+
+function userIdeasCol() {
+  // Collection path: users/{uid}/ideas
+  const { db, collection } = fb();
+  return collection(db, 'users', currentUser.uid, 'ideas');
+}
+
+function userIdeaDoc(ideaId) {
+  const { db, doc } = fb();
+  return doc(db, 'users', currentUser.uid, 'ideas', ideaId);
+}
+
+function userSettingsDoc() {
+  const { db, doc } = fb();
+  return doc(db, 'users', currentUser.uid, 'settings', 'prefs');
+}
+
+// Sync status UI
+function setSyncStatus(status, label) {
+  const ind = document.getElementById('syncIndicator');
+  const lbl = document.getElementById('syncLabel');
+  if (!ind) return;
+  ind.className = `sync-indicator ${status}`;
+  if (lbl) lbl.textContent = label;
+}
+
+// ===================== AUTH STATE HANDLER =====================
+window.onFirebaseAuthChange = async function(user) {
+  if (user) {
+    currentUser = user;
+    hideAuthScreen();
+    updateSidebarUser(user);
+    await initApp();
+  } else {
+    currentUser = null;
+    ideas = [];
+    if (_unsubIdeas) { _unsubIdeas(); _unsubIdeas = null; }
+    showAuthScreen();
+  }
+};
+
+function showAuthScreen() {
+  const el = document.getElementById('authOverlay');
+  if (el) { el.classList.remove('hidden'); }
+}
+function hideAuthScreen() {
+  const el = document.getElementById('authOverlay');
+  if (el) { el.classList.add('hidden'); }
+}
+
+function updateSidebarUser(user) {
+  const avatar = document.getElementById('sidebarAvatar');
+  const name   = document.getElementById('sidebarUserName');
+  const email  = document.getElementById('sidebarUserEmail');
+  if (avatar) avatar.src = user.photoURL || '';
+  if (name)   name.textContent  = user.displayName || 'User';
+  if (email)  email.textContent = user.email || '';
+}
+
+// ===================== FIRESTORE — READ / WRITE =====================
+async function loadIdeasFromDB() {
+  setSyncStatus('syncing', 'Loading…');
+  try {
+    const { getDocs, query, orderBy } = fb();
+    const col   = userIdeasCol();
+    const snap  = await getDocs(query(col, orderBy('date', 'desc')));
+    ideas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setSyncStatus('synced', 'Synced');
+  } catch(e) {
+    console.error('loadIdeas error:', e);
+    setSyncStatus('error', 'Error');
+    showToast('Could not load ideas from database.', 'error');
+  }
+}
+
+async function saveIdeaToDB(idea) {
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    const { setDoc } = fb();
+    await setDoc(userIdeaDoc(idea.id), idea);
+    setSyncStatus('synced', 'Saved ✓');
+  } catch(e) {
+    console.error('saveIdea error:', e);
+    setSyncStatus('error', 'Save failed');
+    showToast('Could not save idea to database.', 'error');
+  }
+}
+
+async function deleteIdeaFromDB(ideaId) {
+  setSyncStatus('syncing', 'Deleting…');
+  try {
+    const { deleteDoc } = fb();
+    await deleteDoc(userIdeaDoc(ideaId));
+    setSyncStatus('synced', 'Synced');
+  } catch(e) {
+    console.error('deleteIdea error:', e);
+    setSyncStatus('error', 'Delete failed');
+    showToast('Could not delete idea from database.', 'error');
+  }
+}
+
+// Save Gemini key to Firestore (per user)
+async function saveGeminiKeyToDB(key) {
+  if (!currentUser) return;
+  try {
+    const { setDoc } = fb();
+    await setDoc(userSettingsDoc(), { geminiKey: key }, { merge: true });
+  } catch(e) { /* fallback to localStorage */ }
+  localStorage.setItem('if_gemini_key_' + currentUser.uid, key);
+}
+
+async function loadGeminiKeyFromDB() {
+  if (!currentUser) return '';
+  // Try Firestore first, fallback to localStorage
+  try {
+    const { getDoc } = fb();
+    const snap = await getDoc(userSettingsDoc());
+    if (snap.exists() && snap.data().geminiKey) {
+      return snap.data().geminiKey;
+    }
+  } catch(e) {}
+  return localStorage.getItem('if_gemini_key_' + currentUser.uid) || '';
+}
+
+// ===================== PERSIST (replaces old localStorage persist) =====================
+async function persist() {
+  // ideas array is already up-to-date — caller does DB write directly
+  // This just refreshes the UI
+  renderAll();
+}
+
+// ===================== GETTERS / SETTERS for Gemini key =====================
+function getGeminiKey() {
+  if (!currentUser) return localStorage.getItem('if_gemini_key') || '';
+  return localStorage.getItem('if_gemini_key_' + currentUser.uid) || '';
+}
+function saveGeminiKey(key) {
+  const storageKey = currentUser
+    ? 'if_gemini_key_' + currentUser.uid
+    : 'if_gemini_key';
+  localStorage.setItem(storageKey, key.trim());
+  // Also save to Firestore in background
+  if (currentUser) saveGeminiKeyToDB(key.trim());
+}
+
+// ===================== INIT (called after sign-in) =====================
+async function initApp() {
+  await loadIdeasFromDB();
+  await loadPreset();      // adds sample only if user has zero ideas
+  buildForm();
+  renderAll();
+  setupEventListeners();
+  updateHeroDate();
+  applyTheme();
+  initChatbot();
+  // Pre-load Gemini key from DB into localStorage cache
+  if (currentUser) {
+    const savedKey = await loadGeminiKeyFromDB();
+    if (savedKey) localStorage.setItem('if_gemini_key_' + currentUser.uid, savedKey);
+  }
+}
 
 // ===================== PHASES CONFIG =====================
 const PHASES = [
@@ -73,15 +237,61 @@ function decCls(d) {
 // ===================== INIT =====================
 window.addEventListener('DOMContentLoaded', () => {
   initParticles();
+  initAuthParticles();
   initCursor();
-  buildForm();
-  loadPreset();
-  renderAll();
-  setupEventListeners();
-  updateHeroDate();
   applyTheme();
-  initChatbot();
+
+  // Auth screen sign-in button
+  document.getElementById('googleSignInBtn')?.addEventListener('click', signInWithGoogle);
+
+  // Sign-out button
+  document.getElementById('signOutBtn')?.addEventListener('click', signOutUser);
+
+  // App will fully init via onFirebaseAuthChange → initApp()
+  // Show auth screen immediately (will hide once auth state resolves)
+  // Don't show it here — onAuthStateChanged fires quickly and decides
 });
+
+async function signInWithGoogle() {
+  const { auth, provider, signInWithPopup } = fb();
+  const errEl  = document.getElementById('authError');
+  const loadEl = document.getElementById('authLoading');
+  const btnEl  = document.getElementById('googleSignInBtn');
+
+  errEl.style.display  = 'none';
+  loadEl.style.display = 'flex';
+  btnEl.style.display  = 'none';
+
+  try {
+    await signInWithPopup(auth, provider);
+    // onAuthStateChanged fires automatically → hideAuthScreen + initApp
+  } catch(e) {
+    loadEl.style.display = 'none';
+    btnEl.style.display  = 'flex';
+    const msg = e.code === 'auth/popup-closed-by-user'
+      ? 'Sign-in cancelled. Please try again.'
+      : e.code === 'auth/popup-blocked'
+      ? 'Popup was blocked. Please allow popups for this site.'
+      : `Sign-in failed: ${e.message}`;
+    errEl.textContent   = msg;
+    errEl.style.display = 'block';
+  }
+}
+
+async function signOutUser() {
+  const { auth, signOut } = fb();
+  if (!confirm('Sign out of IdeaForge?')) return;
+  try {
+    if (_unsubIdeas) { _unsubIdeas(); _unsubIdeas = null; }
+    ideas = [];
+    currentUser = null;
+    await signOut(auth);
+    // onAuthStateChanged → showAuthScreen
+    showToast('Signed out successfully.', 'success');
+  } catch(e) {
+    showToast('Sign-out failed. Please try again.', 'error');
+  }
+}
 
 function renderAll() {
   renderSidebar();
@@ -223,7 +433,35 @@ function newIdeaAction() {
   buildForm(); goToPhase(0); switchView('new-idea');
 }
 
-// ===================== PARTICLES =====================
+// ===================== AUTH SCREEN PARTICLES =====================
+function initAuthParticles() {
+  const c = document.getElementById('authCanvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  let W, H, pts = [];
+  function resize() { W = c.width = innerWidth; H = c.height = innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  for (let i = 0; i < 40; i++) {
+    pts.push({ x:Math.random()*1920, y:Math.random()*1080, vx:(Math.random()-.5)*.3, vy:(Math.random()-.5)*.3, r:Math.random()*1.5+.5 });
+  }
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    const pc = '0,245,200';
+    pts.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if(p.x<0)p.x=W; if(p.x>W)p.x=0; if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${pc},0.5)`; ctx.fill();
+    });
+    pts.forEach((a,i) => pts.slice(i+1).forEach(b => {
+      const d = Math.hypot(a.x-b.x, a.y-b.y);
+      if(d < 100){ ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+        ctx.strokeStyle=`rgba(${pc},${(1-d/100)*0.1})`; ctx.lineWidth=0.5; ctx.stroke(); }
+    }));
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
 function initParticles() {
   const isMobile = window.matchMedia('(max-width:900px)').matches;
   const c = document.getElementById('bgCanvas');
@@ -674,23 +912,32 @@ function populateForm(d) {
 }
 
 // ===================== SAVE =====================
-function saveIdea() {
+async function saveIdea() {
   captureFormData();
-  if (!formData.name.trim()) { showToast('Please enter an idea name.','error'); return; }
+  if (!formData.name.trim()) { showToast('Please enter an idea name.', 'error'); return; }
+
+  const ideaToSave = editingId ? { ...formData, id: editingId } : { ...formData };
+  const savedId    = editingId || formData.id;
+
   if (editingId) {
-    const idx = ideas.findIndex(i=>i.id===editingId);
-    if (idx!==-1) ideas[idx] = { ...formData, id:editingId };
+    const idx = ideas.findIndex(i => i.id === editingId);
+    if (idx !== -1) ideas[idx] = ideaToSave;
+    else ideas.push(ideaToSave);
   } else {
-    ideas.push({ ...formData });
+    ideas.push(ideaToSave);
   }
-  persist();
-  const savedId = editingId || formData.id;
+
   editingId = null;
-  showToast(editingId?'Idea updated!':'Idea saved to portfolio!','success');
+  renderAll();
+  showToast('Idea saved! ✓', 'success');
   viewIdea(savedId);
+
+  // Write to Firestore in background
+  await saveIdeaToDB(ideaToSave);
 }
+
+// persist() — just refreshes UI; actual DB writes happen in saveIdeaToDB / deleteIdeaFromDB
 function persist() {
-  localStorage.setItem('if_ideas_v2', JSON.stringify(ideas));
   renderAll();
 }
 
@@ -717,18 +964,19 @@ function editIdea(id) {
   buildForm(); goToPhase(0); populateForm(idea); switchView('new-idea');
 }
 function confirmDelete(id) {
-  const idea = ideas.find(i=>i.id===id);
+  const idea = ideas.find(i => i.id === id);
   if (!idea) return;
   document.getElementById('confirmTitle').textContent = 'Delete Idea';
-  document.getElementById('confirmBody').textContent = `Are you sure you want to delete "${idea.name || 'this idea'}"? This cannot be undone.`;
+  document.getElementById('confirmBody').textContent  = `Are you sure you want to delete "${idea.name || 'this idea'}"? This cannot be undone.`;
   document.getElementById('confirmOverlay').style.display = 'flex';
-  document.getElementById('confirmCancel').onclick = () => document.getElementById('confirmOverlay').style.display='none';
-  document.getElementById('confirmOk').onclick = () => {
-    ideas = ideas.filter(i=>i.id!==id);
-    persist();
-    document.getElementById('confirmOverlay').style.display='none';
-    showToast('Idea deleted.','error');
+  document.getElementById('confirmCancel').onclick = () => document.getElementById('confirmOverlay').style.display = 'none';
+  document.getElementById('confirmOk').onclick = async () => {
+    ideas = ideas.filter(i => i.id !== id);
+    renderAll();
+    document.getElementById('confirmOverlay').style.display = 'none';
+    showToast('Idea deleted.', 'error');
     switchView('dashboard');
+    await deleteIdeaFromDB(id);  // delete from Firestore
   };
 }
 
@@ -1169,15 +1417,6 @@ function destroyAnalyticsCharts() {
 }
 
 // ===================== AI ANALYSIS =====================
-// ===================== GEMINI API KEY MANAGEMENT =====================
-// Key is saved permanently in localStorage — only cleared if user explicitly changes it
-function getGeminiKey() {
-  return localStorage.getItem('if_gemini_key') || '';
-}
-function saveGeminiKey(key) {
-  localStorage.setItem('if_gemini_key', key.trim());
-}
-
 // Gemini 2.0 Flash Lite — highest free quota, fast, capable
 const GEMINI_MODEL  = 'gemini-2.0-flash-lite';
 const GEMINI_BASE   = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -1224,7 +1463,10 @@ async function runAIAnalysis() {
 
 async function clearCacheAndReanalyse() {
   const idx = ideas.findIndex(i => i.id === currentIdeaId);
-  if (idx !== -1) { ideas[idx].aiAnalysis = null; persist(); }
+  if (idx !== -1) {
+    ideas[idx].aiAnalysis = null;
+    saveIdeaToDB(ideas[idx]);  // persist cleared cache to DB
+  }
   const savedKey = getGeminiKey();
   if (!savedKey) { showGeminiKeySetup(); return; }
   const idea = ideas.find(i => i.id === currentIdeaId);
@@ -1335,9 +1577,12 @@ aiScore must be a number 0-100.`;
     showToast('AI analysis complete! ✓', 'success');
     _geminiInFlight = false;
 
-    // Cache so we don't re-call API on every open
+    // Cache to memory + Firestore
     const idx = ideas.findIndex(i => i.id === currentIdeaId);
-    if (idx !== -1) { ideas[idx].aiAnalysis = parsed; persist(); }
+    if (idx !== -1) {
+      ideas[idx].aiAnalysis = parsed;
+      saveIdeaToDB(ideas[idx]);   // persist to DB
+    }
 
   } catch (e) {
     _geminiInFlight = false;
@@ -1446,7 +1691,8 @@ function showAIError(htmlMsg) {
 }
 
 function showGeminiKeyError(msg) {
-  localStorage.removeItem('if_gemini_key');
+  const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
+  localStorage.removeItem(k);
   showGeminiKeySetup(msg);
 }
 
@@ -1503,7 +1749,8 @@ function renderAIPanel(data, idea) {
 }
 
 function changeGeminiKey() {
-  localStorage.removeItem('if_gemini_key');
+  const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
+  localStorage.removeItem(k);
   showGeminiKeySetup();
 }
 
@@ -1760,14 +2007,13 @@ function saveChatKey() {
   clearChat();
 }
 
-/* ---------- changeGeminiKey (works from anywhere) ---------- */
+/* ---------- changeGeminiKey (works from anywhere — chat + AI panel) ---------- */
 function changeGeminiKey() {
-  localStorage.removeItem('if_gemini_key');
-  // If chat is open, show setup in chat
+  const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
+  localStorage.removeItem(k);
   if (chatIsOpen) {
     showChatKeySetup();
   } else {
-    // Open chat and show setup
     openChat();
     setTimeout(showChatKeySetup, 320);
   }
@@ -1834,7 +2080,8 @@ async function sendChatMessage() {
         appendChatMsg('ai', `⚠️ **Daily quota exceeded.**\n\nYour free Gemini key has hit its daily limit. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) and create a new key — then click **⚙** above to update it.`);
       } else if (res.status === 400 || res.status === 403) {
         appendChatMsg('ai', `⚠️ **Invalid API key.** Please click **⚙** above and enter a valid Gemini API key.`);
-        localStorage.removeItem('if_gemini_key');
+        const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
+        localStorage.removeItem(k);
       } else {
         appendChatMsg('ai', `⚠️ **Error (${res.status}):** ${errMsg}`);
       }
@@ -1975,8 +2222,11 @@ function escHTML(t) {
 }
 
 // ===================== PRESET SAMPLE =====================
-function loadPreset() {
-  if(ideas.length) return;
+// ===================== PRESET SAMPLE (first-time user only) =====================
+async function loadPreset() {
+  // Only load sample if user has zero ideas (new account)
+  if (ideas.length) return;
+
   const s = blank();
   Object.assign(s, {
     id:'sample-sf', name:'SmartFleet — AI Logistics', date:'2025-12-25',
@@ -1986,7 +2236,7 @@ function loadPreset() {
     commonBelief:'Route planning needs human dispatchers.',
     contrarian:'AI can optimize multi-vehicle logistics 30% better than humans',
     contrarian2:'real-time data + modern ML are now mature',
-    evidence:'Existing logistics firms waste 20-30% on inefficient routing. AWS trials show AI optimization potential.',
+    evidence:'Existing logistics firms waste 20-30% on inefficient routing.',
     insight:'AI-based route optimization reduces cost, delays, and improves fleet utilization beyond traditional human methods.',
     problemUser:'Logistics managers', problemBecause:'high costs and delays', problemDef:'manual route planning is inefficient',
     scores:{pain:5,urgency:5,budget:4,alternatives:5,awareness:3},
@@ -1994,8 +2244,7 @@ function loadPreset() {
     dimensions:['Speed','Quality','Reliability'],
     solution:'AI integrates GPS, traffic, weather, and vehicle data to compute optimal routes in real-time.',
     solutionHelp:'fleet operators', solutionAchieve:'reduce delays and fuel costs',
-    solutionBy:'AI-powered real-time route optimization',
-    solutionUnlike:'manual dispatch software',
+    solutionBy:'AI-powered real-time route optimization', solutionUnlike:'manual dispatch software',
     technologies:'AI/ML, Cloud, GPS IoT', mvp:'Yes',
     beachheadWho:'Mid-size logistics (50-200 trucks)', beachheadUseCase:'Route optimization',
     beachheadWin:'Existing solutions are fragmented, expensive, non-real-time',
@@ -2035,6 +2284,8 @@ function loadPreset() {
     conviction:9, finalDecision:'Commit fully',
     finalNotes:'Pilot validated — strong product-market fit. Ready to build.',
   });
+
   ideas.push(s);
-  localStorage.setItem('if_ideas_v2', JSON.stringify(ideas));
+  // Save sample idea to Firestore for new users
+  if (currentUser) await saveIdeaToDB(s);
 }

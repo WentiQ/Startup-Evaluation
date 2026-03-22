@@ -71,6 +71,132 @@ body{
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--bg5);border-radius:3px}
 
+/* ================================================================
+   AUTH SCREEN
+================================================================ */
+.auth-overlay{
+  position:fixed;inset:0;z-index:9999;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);
+  transition:opacity 0.4s,visibility 0.4s;
+}
+.auth-overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
+#authCanvas{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0.4}
+
+.auth-card{
+  position:relative;z-index:1;
+  width:420px;max-width:calc(100vw - 32px);
+  border-radius:24px;
+  padding:40px 36px;
+  text-align:center;
+  border:1px solid var(--border-bright);
+  animation:fadeSlideUp 0.5s var(--ease);
+}
+.auth-logo{
+  width:72px;height:72px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent2-dim),var(--accent-dim));
+  border:1px solid rgba(0,245,200,0.2);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 16px;
+}
+.auth-brand{
+  font-family:var(--font-d);font-size:26px;font-weight:800;
+  color:var(--text);letter-spacing:-0.5px;margin-bottom:6px;
+}
+.auth-pro{
+  font-size:12px;letter-spacing:3px;font-weight:600;
+  color:var(--accent);vertical-align:middle;margin-left:4px;
+}
+.auth-tagline{font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:28px}
+
+.auth-features{
+  display:flex;flex-direction:column;gap:10px;
+  margin-bottom:28px;text-align:left;
+}
+.auth-feature{
+  display:flex;align-items:center;gap:12px;
+  font-size:12.5px;color:var(--text2);
+}
+.af-icon{font-size:16px;width:24px;text-align:center;flex-shrink:0;color:var(--accent)}
+
+.auth-google-btn{
+  width:100%;padding:14px 20px;
+  border-radius:12px;
+  background:#fff;border:none;
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  font-family:var(--font-d);font-size:15px;font-weight:700;
+  color:#1a1a2e;cursor:pointer;
+  transition:all 0.2s var(--ease);
+  box-shadow:0 4px 20px rgba(0,0,0,0.3);
+  margin-bottom:14px;
+}
+.auth-google-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.auth-google-btn:active{transform:translateY(0)}
+
+.auth-error{
+  padding:10px 14px;border-radius:8px;
+  background:var(--danger-dim);border:1px solid rgba(255,77,106,0.25);
+  color:var(--danger);font-size:12px;margin-bottom:12px;
+}
+.auth-loading{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  color:var(--text3);font-size:12.5px;margin-bottom:12px;
+}
+.auth-footer{font-size:10.5px;color:var(--text3);line-height:1.6}
+
+/* ================================================================
+   SIDEBAR USER PROFILE
+================================================================ */
+.sidebar-user{
+  display:flex;align-items:center;gap:10px;
+  padding:12px;border-radius:var(--r-sm);
+  background:var(--bg3);border:1px solid var(--border);
+  margin-bottom:10px;
+}
+.sidebar-user-avatar{
+  width:36px;height:36px;border-radius:50%;
+  border:2px solid var(--accent);flex-shrink:0;
+  object-fit:cover;
+}
+.sidebar-user-info{flex:1;min-width:0}
+.sidebar-user-name{
+  font-family:var(--font-d);font-size:12.5px;font-weight:700;
+  color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sidebar-user-email{
+  font-size:10px;color:var(--text3);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sidebar-signout-btn{
+  width:28px;height:28px;border-radius:6px;flex-shrink:0;
+  background:none;border:1px solid var(--border);
+  color:var(--text3);font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.15s;
+}
+.sidebar-signout-btn:hover{background:var(--danger-dim);border-color:var(--danger);color:var(--danger)}
+
+/* DB sync indicator in topbar */
+.sync-indicator{
+  display:flex;align-items:center;gap:5px;
+  font-size:10.5px;color:var(--text3);
+  padding:4px 10px;border-radius:99px;
+  background:var(--bg3);border:1px solid var(--border);
+  transition:all 0.3s;
+}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:background 0.3s}
+.sync-indicator.syncing .sync-dot{background:var(--warn);animation:onlinePulse 0.8s infinite}
+.sync-indicator.synced .sync-dot{background:var(--success)}
+.sync-indicator.error .sync-dot{background:var(--danger)}
+
+@media(max-width:600px){
+  .auth-card{padding:28px 20px}
+  .auth-brand{font-size:22px}
+  .auth-tagline{font-size:12px}
+  .auth-google-btn{font-size:13px;padding:12px 16px}
+  .sync-indicator{display:none}  /* hide on small screens to save topbar space */
+}
+
 /* ---- CANVAS BG ---- */
 #bgCanvas{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.35}
 
