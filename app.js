@@ -341,8 +341,7 @@ function setupEventListeners() {
   document.getElementById('detailEditBtn').addEventListener('click', () => editIdea(currentIdeaId));
   document.getElementById('detailDeleteBtn').addEventListener('click', () => confirmDelete(currentIdeaId));
   document.getElementById('detailExportBtn').addEventListener('click', exportPDF);
-  // Export all
-  document.getElementById('btnExportAll').addEventListener('click', exportAllJSON);
+  // Export button handled by onclick in HTML (openExportModal)
   // Keyboard shortcuts
   document.addEventListener('keydown', e => {
     if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); openSearch(); }
@@ -934,11 +933,6 @@ async function saveIdea() {
 
   // Write to Firestore in background
   await saveIdeaToDB(ideaToSave);
-}
-
-// persist() — just refreshes UI; actual DB writes happen in saveIdeaToDB / deleteIdeaFromDB
-function persist() {
-  renderAll();
 }
 
 // ===================== VIEW IDEA (DETAIL) =====================
@@ -1748,12 +1742,6 @@ function renderAIPanel(data, idea) {
     </div>`;
 }
 
-function changeGeminiKey() {
-  const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
-  localStorage.removeItem(k);
-  showGeminiKeySetup();
-}
-
 function closeAIPanel() {
   document.getElementById('aiPanel').style.display = 'none';
 }
@@ -1883,14 +1871,6 @@ function runSearch() {
   }).join('');
 }
 
-// ===================== EXPORT / IMPORT JSON =====================
-function exportAllJSON() {
-  const blob = new Blob([JSON.stringify(ideas,null,2)],{type:'application/json'});
-  const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=`ideaforge-backup-${today()}.json`; a.click();
-  showToast('Data exported!','success');
-}
-
 // ===================== TOAST =====================
 function showToast(msg, type='') {
   const stack = document.getElementById('toastStack');
@@ -1904,14 +1884,264 @@ function showToast(msg, type='') {
 // ===================== UTILS =====================
 function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ===================== EXPORT MODAL & FUNCTIONS =====================
+let exportFormat = 'excel';
+
+function openExportModal() {
+  // Populate idea checkboxes
+  const box = document.getElementById('exportIdeaChecks');
+  if (box) {
+    box.innerHTML = ideas.map(i => `
+      <label class="export-check-row">
+        <input type="checkbox" class="export-idea-cb" value="${i.id}" checked>
+        <span>${i.name||'Untitled'} <span style="color:var(--text3);font-size:10px">(Score: ${totalScore(i)})</span></span>
+      </label>`).join('');
+  }
+  document.getElementById('exportModalOverlay').style.display = 'flex';
+}
+function closeExportModal() {
+  document.getElementById('exportModalOverlay').style.display = 'none';
+}
+function selectExportFmt(fmt, btn) {
+  exportFormat = fmt;
+  document.querySelectorAll('.export-fmt-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function toggleExportAll(cb) {
+  document.querySelectorAll('.export-idea-cb').forEach(c => c.checked = cb.checked);
+}
+
+function getSortedIdeasForExport() {
+  const sort  = document.getElementById('exportSortBy')?.value || 'score';
+  const cbIds = [...document.querySelectorAll('.export-idea-cb:checked')].map(c => c.value);
+  let list    = ideas.filter(i => cbIds.includes(i.id));
+  if (sort === 'score')      list.sort((a,b) => totalScore(b) - totalScore(a));
+  else if (sort === 'conviction') list.sort((a,b) => (b.conviction||0) - (a.conviction||0));
+  else if (sort === 'date_desc')  list.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  else if (sort === 'date_asc')   list.sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  else if (sort === 'name')       list.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  return list;
+}
+
+function runExport() {
+  const list = getSortedIdeasForExport();
+  if (!list.length) { showToast('No ideas selected.', 'error'); return; }
+  closeExportModal();
+  if (exportFormat === 'excel') exportToExcel(list);
+  else exportAllPDF(list);
+}
+
+// ── Excel Export ──
+function exportToExcel(list) {
+  showToast('Preparing Excel…', 'info');
+  // Build CSV with all fields (no external library needed — Excel opens CSV)
+  const FIELDS = [
+    ['Name','name'], ['Date','date'], ['Domains','domains'], ['Tags','tags'],
+    ['Problem Score','_score'], ['Conviction',  'conviction'], ['Decision','finalDecision'],
+    ['Filter Rating','overallFilter'], ['Insight','insight'],
+    ['Problem User','problemUser'], ['Problem Because','problemBecause'], ['Problem Definition','problemDef'],
+    ['Score Pain','scores.pain'], ['Score Urgency','scores.urgency'], ['Score Budget','scores.budget'],
+    ['Score Alternatives','scores.alternatives'], ['Score Awareness','scores.awareness'],
+    ['Target Role','targetRole'], ['Target Context','targetContext'],
+    ['10x Dimensions','dimensions'], ['Solution','solution'],
+    ['Solution Statement','_solutionStatement'],
+    ['Technologies','technologies'], ['MVP','mvp'],
+    ['Beachhead Who','beachheadWho'], ['Beachhead Use Case','beachheadUseCase'],
+    ['Beachhead Win','beachheadWin'], ['Market Path','_marketPath'],
+    ['Biz Who Pays','bizWho'], ['Biz What For','bizWhat'],
+    ['Pricing','bizPricing'], ['Recurring','recurring'], ['Price','bizPrice'],
+    ['Costs','bizCosts'], ['Gross Margin','grossMargin'], ['LTV/CAC','ltv'],
+    ['Channels','channels'], ['Channel Plan','channelExplain'],
+    ['Q1 Engineering','q1'], ['Q2 Timing','q2'], ['Q3 Monopoly','q3'],
+    ['Q4 People','q4'], ['Q5 Distribution','q5'], ['Q6 Durability','q6'], ['Q7 Secret','q7'],
+    ['Moats','moats'], ['Moat Explanation','moatExplain'],
+    ['Risks','_risks'], ['Risks Controllable','risksControl'],
+    ['Asymmetric Work','asymmetricWork'], ['Asymmetric Fail','asymmetricFail'],
+    ['Summary Insight','summaryInsight'], ['Summary Problem','summaryProblem'],
+    ['Summary Solution','summarySolution'], ['Summary User','summaryUser'],
+    ['Summary Market','summaryMarket'], ['Summary Biz','summaryBiz'],
+    ['Summary Distribution','summaryDist'], ['Summary Moat','summaryMoat'],
+    ['Why Now','summaryWhy'], ['10-Year Vision','summaryVision'],
+    ['Final Notes','finalNotes']
+  ];
+
+  const csvRows = [];
+  // Header
+  csvRows.push(FIELDS.map(([h]) => `"${h}"`).join(','));
+
+  // Rows
+  list.forEach((idea, rank) => {
+    const row = FIELDS.map(([, key]) => {
+      let val = '';
+      if (key === '_score')           val = totalScore(idea);
+      else if (key === '_solutionStatement') val = `We help ${idea.solutionHelp||''} achieve ${idea.solutionAchieve||''} by ${idea.solutionBy||''}, unlike ${idea.solutionUnlike||''}`;
+      else if (key === '_marketPath') val = (idea.marketPath||[]).join(' → ');
+      else if (key === '_risks')      val = (idea.risks||[]).filter(Boolean).join('; ');
+      else if (key.includes('.')) {
+        const [obj, prop] = key.split('.');
+        val = idea[obj]?.[prop] ?? '';
+      } else if (Array.isArray(idea[key])) {
+        val = (idea[key]||[]).join('; ');
+      } else {
+        val = idea[key] ?? '';
+      }
+      // Escape for CSV
+      return `"${String(val).replace(/"/g,'""')}"`;
+    });
+    csvRows.push(row.join(','));
+  });
+
+  const csv  = '\uFEFF' + csvRows.join('\r\n'); // BOM for Excel UTF-8
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `IdeaForge-Export-${today()}.csv`;
+  a.click();
+  showToast(`Excel exported — ${list.length} ideas ✓`, 'success');
+}
+
+// ── Multi-PDF Export ──
+function exportAllPDF(list) {
+  showToast('Generating PDF…', 'info');
+  const w = window.open('', '_blank');
+  const ideaHTMLs = list.map((idea, i) => {
+    const s = totalScore(idea);
+    return `
+    <div class="idea-section${i > 0 ? ' page-break' : ''}">
+      <div class="idea-header">
+        <div>
+          <div class="idea-num">Idea #${i+1}</div>
+          <div class="idea-name">${idea.name||'Untitled'}</div>
+          <div class="idea-meta">${idea.date||''} · ${(idea.domains||[]).join(', ')||'—'} · ${(idea.tags||[]).map(t=>'#'+t).join(' ')}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="score-big" style="color:${s>=20?'#16a34a':s>=13?'#d97706':'#dc2626'}">${s}<span style="font-size:14px;color:#9897a8">/25</span></div>
+          <div class="meta">Problem Score</div>
+          <div class="score-big" style="font-size:28px;color:#7c6bff;margin-top:4px">${idea.conviction||'?'}<span style="font-size:12px;color:#9897a8">/10</span></div>
+          <div class="meta">Conviction</div>
+        </div>
+      </div>
+      <div class="decision-badge" style="background:${idea.finalDecision==='Commit fully'?'#f0fdf4':idea.finalDecision==='Discard'?'#fef2f2':'#fffbeb'};color:${idea.finalDecision==='Commit fully'?'#16a34a':idea.finalDecision==='Discard'?'#dc2626':'#d97706'}">
+        ${idea.finalDecision||'No decision yet'}
+      </div>
+
+      <div class="section"><h2>Thesis Summary</h2>
+        <div class="grid">
+          ${[['Insight',idea.summaryInsight],['Problem',idea.summaryProblem],['Solution',idea.summarySolution],['User',idea.summaryUser],['Market',idea.summaryMarket],['Biz Model',idea.summaryBiz],['Distribution',idea.summaryDist],['Moat',idea.summaryMoat],['Why Now',idea.summaryWhy],['Vision',idea.summaryVision]].map(([l,v])=>`<div><div class="fl">${l}</div><div class="fv">${v||'—'}</div></div>`).join('')}
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="section"><h2>Problem Score</h2>
+          ${Object.entries(idea.scores||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span class="fv">${k}</span><strong>${v}/5</strong></div>`).join('')}
+          <div style="border-top:2px solid #e8e7f0;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between"><strong>Total</strong><strong style="color:${s>=20?'#16a34a':s>=13?'#d97706':'#dc2626'}">${s}/25</strong></div>
+        </div>
+        <div class="section"><h2>Business Model</h2>
+          <div><div class="fl">Who Pays</div><div class="fv">${idea.bizWho||'—'}</div></div>
+          <div><div class="fl">Pricing</div><div class="fv">${idea.bizPricing||'—'}</div></div>
+          <div><div class="fl">Margin</div><div class="fv">${idea.grossMargin||'—'}</div></div>
+          <div><div class="fl">LTV/CAC</div><div class="fv">${idea.ltv||'—'}</div></div>
+          <div><div class="fl">Channels</div><div class="fv">${(idea.channels||[]).join(', ')||'—'}</div></div>
+        </div>
+      </div>
+
+      <div class="section"><h2>7-Question Filter <span style="font-size:12px;font-weight:400;color:${idea.overallFilter==='Strong'?'#16a34a':idea.overallFilter==='Medium'?'#d97706':'#dc2626'}">${idea.overallFilter||''}</span></h2>
+        <div class="grid">
+          ${[['Engineering',idea.q1],['Timing',idea.q2],['Monopoly',idea.q3],['People',idea.q4],['Distribution',idea.q5],['Durability',idea.q6],['Secret',idea.q7]].map(([l,v])=>`<div><div class="fl">${l}</div><div class="fv">${(v||'—').substring(0,100)}${(v||'').length>100?'…':''}</div></div>`).join('')}
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="section"><h2>Moats</h2>
+          <div class="chips">${(idea.moats||[]).map(m=>`<span class="chip">${m}</span>`).join('')||'—'}</div>
+          <div style="margin-top:8px"><div class="fv">${idea.moatExplain||''}</div></div>
+        </div>
+        <div class="section"><h2>Top Risks</h2>
+          ${(idea.risks||[]).filter(Boolean).map((r,i)=>`<div class="fv">${i+1}. ${r}</div>`).join('')||'—'}
+        </div>
+      </div>
+      ${idea.finalNotes?`<div class="section"><h2>Final Notes</h2><div class="fv" style="font-style:italic">"${idea.finalNotes}"</div></div>`:''}
+    </div>`;
+  }).join('');
+
+  w.document.write(`<!DOCTYPE html><html><head>
+  <title>IdeaForge Portfolio — ${list.length} Ideas</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'DM Mono',monospace;background:#fff;color:#1a1927;padding:30px;line-height:1.6}
+    .page-break{page-break-before:always;padding-top:30px}
+    .idea-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:14px;border-bottom:3px solid #7c6bff}
+    .idea-num{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9897a8;margin-bottom:4px}
+    .idea-name{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;margin-bottom:4px}
+    .idea-meta{font-size:11px;color:#9897a8}
+    .score-big{font-family:'Syne',sans-serif;font-size:40px;font-weight:800;line-height:1}
+    .meta{font-size:10px;color:#9897a8;margin-top:2px}
+    .decision-badge{display:inline-block;padding:5px 16px;border-radius:99px;font-size:13px;font-weight:700;font-family:'Syne',sans-serif;margin-bottom:14px}
+    .section{background:#f8f7fc;border-radius:10px;padding:16px;margin-bottom:12px;border:1px solid #e8e7f0}
+    h2{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:#3a3850;margin-bottom:10px;border-bottom:1px solid #e8e7f0;padding-bottom:6px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .fl{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#9897a8;margin-bottom:2px}
+    .fv{font-size:12px;color:#3a3850;line-height:1.5}
+    .chips{display:flex;flex-wrap:wrap;gap:5px}
+    .chip{font-size:10px;padding:2px 9px;background:#ede9fe;color:#7c6bff;border-radius:99px}
+    .toc-item{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #e8e7f0;font-size:12px}
+    .toc-rank{color:#9897a8;font-size:11px}
+    @media print{.page-break{page-break-before:always}body{padding:15px}}
+  </style></head><body>
+  <div style="text-align:center;padding:30px 0 20px;border-bottom:3px solid #7c6bff;margin-bottom:24px">
+    <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;margin-bottom:6px">IdeaForge Pro — Portfolio Report</div>
+    <div style="font-size:12px;color:#9897a8">Generated ${new Date().toLocaleDateString('en-IN',{year:'numeric',month:'long',day:'numeric'})} · ${list.length} ideas</div>
+  </div>
+  <!-- Table of Contents -->
+  <div style="margin-bottom:24px">
+    <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:10px">Contents</div>
+    ${list.map((idea,i)=>`
+      <div class="toc-item">
+        <span><strong>#${i+1}</strong> ${idea.name||'Untitled'}</span>
+        <span class="toc-rank">Score: ${totalScore(idea)}/25 · ${idea.finalDecision||'Undecided'}</span>
+      </div>`).join('')}
+  </div>
+  ${ideaHTMLs}
+  <script>window.print();<\/script>
+  </body></html>`);
+  w.document.close();
+  showToast(`PDF opened — ${list.length} ideas ✓`, 'success');
+}
+
 // ===================== FLOATING AI CHATBOT =====================
-let chatHistory  = [];   // [{role:'user'|'model', parts:[{text}]}]
-let chatInFlight = false;
-let chatIsOpen   = false;
+let chatHistory   = [];
+let chatInFlight  = false;
+let chatIsOpen    = false;
+
+// ── AI Provider State ──
+// provider: 'gemini' | 'openrouter'
+// stored per-user in localStorage
+function getChatProvider()  { return localStorage.getItem('if_chat_provider') || 'gemini'; }
+function setChatProvider(p) { localStorage.setItem('if_chat_provider', p); updateProviderUI(); }
+function getORKey()   { return localStorage.getItem(currentUser?'if_or_key_'+currentUser.uid:'if_or_key') || ''; }
+function setORKey(k)  { localStorage.setItem(currentUser?'if_or_key_'+currentUser.uid:'if_or_key', k.trim()); }
+function getORModel() { return localStorage.getItem('if_or_model') || 'google/gemini-2.0-flash-exp:free'; }
+function setORModel(m){ localStorage.setItem('if_or_model', m); }
+
+function updateProviderUI() {
+  const p = getChatProvider();
+  const lbl = document.getElementById('chatProviderLabel');
+  const ml  = document.getElementById('chatModelLabel');
+  if (p === 'gemini') {
+    if (lbl) lbl.textContent = 'Gemini Free';
+    if (ml)  ml.textContent  = 'Gemini 2.0 Flash Lite';
+  } else {
+    const model = getORModel().split('/').pop().split(':')[0];
+    if (lbl) lbl.textContent = 'OpenRouter';
+    if (ml)  ml.textContent  = model;
+  }
+}
 
 function initChatbot() {
   updateChatIdeaSelector();
-  // If key already saved, don't show setup on open — go straight to chat
+  updateProviderUI();
 }
 
 function updateChatIdeaSelector() {
@@ -1923,23 +2153,21 @@ function updateChatIdeaSelector() {
   if (prev) sel.value = prev;
 }
 
-/* ---------- open / close / toggle ---------- */
-function toggleChat() {
-  chatIsOpen ? closeChat() : openChat();
-}
+/* ── open / close / toggle ── */
+function toggleChat() { chatIsOpen ? closeChat() : openChat(); }
 function openChat() {
   chatIsOpen = true;
   document.getElementById('chatWindow').classList.add('open');
   document.getElementById('chatFab').classList.add('open');
   document.getElementById('chatFabBadge').style.display = 'none';
-  // Replace icon with X
   document.getElementById('chatFabIcon').innerHTML =
-    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-       <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-     </svg>`;
+    `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>`;
   updateChatIdeaSelector();
-  // If no API key → show inline key setup in chat window
-  if (!getGeminiKey()) showChatKeySetup();
+  updateProviderUI();
+  // Check if API key is set for active provider
+  const provider = getChatProvider();
+  const hasKey   = provider === 'gemini' ? !!getGeminiKey() : !!getORKey();
+  if (!hasKey) showChatKeySetup();
   setTimeout(() => document.getElementById('chatInput')?.focus(), 300);
 }
 function closeChat() {
@@ -1947,19 +2175,128 @@ function closeChat() {
   document.getElementById('chatWindow').classList.remove('open');
   document.getElementById('chatFab').classList.remove('open');
   document.getElementById('chatFabIcon').innerHTML =
-    `<svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-     </svg>`;
+    `<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-/* ---------- suggestion chips ---------- */
+/* ── API Settings Modal ── */
+function openChatSettings() {
+  const provider = getChatProvider();
+  // Restore current values into settings form
+  document.querySelectorAll('.provider-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.provider === provider);
+  });
+  document.getElementById('geminiSettings').style.display      = provider==='gemini'      ? '' : 'none';
+  document.getElementById('openrouterSettings').style.display  = provider==='openrouter'  ? '' : 'none';
+
+  const gKey = getGeminiKey();
+  const oKey = getORKey();
+  if (gKey) document.getElementById('settingsGeminiKey').value = gKey;
+  if (oKey) document.getElementById('settingsORKey').value     = oKey;
+  const orModel = getORModel();
+  const orSel   = document.getElementById('settingsORModel');
+  if (orSel) {
+    // Set the input value (works for both custom and predefined models)
+    orSel.value = orModel;
+  }
+  document.getElementById('apiSettingsOverlay').style.display = 'flex';
+}
+function closeApiSettings() {
+  document.getElementById('apiSettingsOverlay').style.display = 'none';
+}
+function selectProvider(p, btn) {
+  document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('geminiSettings').style.display     = p==='gemini'     ? '' : 'none';
+  document.getElementById('openrouterSettings').style.display = p==='openrouter' ? '' : 'none';
+}
+function toggleInputVis(id) {
+  const el = document.getElementById(id);
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+function saveApiSettings() {
+  const activeTab = document.querySelector('.provider-tab.active');
+  const provider  = activeTab?.dataset.provider || 'gemini';
+  setChatProvider(provider);
+
+  if (provider === 'gemini') {
+    const key = document.getElementById('settingsGeminiKey')?.value.trim();
+    if (key) saveGeminiKey(key);
+  } else {
+    const key   = document.getElementById('settingsORKey')?.value.trim();
+    const model = document.getElementById('settingsORModel')?.value;
+    if (key)   setORKey(key);
+    if (model) setORModel(model);
+  }
+
+  closeApiSettings();
+  updateProviderUI();
+  showToast('API settings saved ✓', 'success');
+
+  // If chat has key setup screen, clear it
+  const box  = document.getElementById('chatMessages');
+  const setup = box?.querySelector('.chat-key-setup');
+  if (setup) clearChat();
+}
+
+/* ── Key setup in chat (if no key set) ── */
+function showChatKeySetup() {
+  const provider = getChatProvider();
+  const isGemini = provider === 'gemini';
+  document.getElementById('chatMessages').innerHTML = `
+    <div class="chat-key-setup">
+      <div class="chat-key-setup-title">⚡ Connect ${isGemini ? 'Gemini' : 'OpenRouter'} AI</div>
+      <div class="chat-key-setup-sub">
+        ${isGemini
+          ? `Free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com/app/apikey</a>`
+          : `Free key from <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent)">openrouter.ai/keys</a>`}
+        — no credit card needed.
+      </div>
+      <div class="chat-key-input-row">
+        <input type="password" id="chatKeyInput" class="chat-key-input"
+          placeholder="${isGemini ? 'AIza…' : 'sk-or-v1-…'}"
+          autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();saveChatKey()}">
+        <button class="chat-key-save-btn" onclick="saveChatKey()">Save</button>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px">Or click ⚙ to switch provider / manage all keys</div>
+    </div>`;
+  setTimeout(() => document.getElementById('chatKeyInput')?.focus(), 100);
+}
+
+function saveChatKey() {
+  const input    = document.getElementById('chatKeyInput');
+  const key      = input?.value.trim() || '';
+  const provider = getChatProvider();
+  if (!key) { showToast('Please paste your API key.', 'error'); return; }
+
+  if (provider === 'gemini') {
+    if (!key.startsWith('AIza')) { showToast('Gemini keys start with "AIza"', 'error'); return; }
+    saveGeminiKey(key);
+  } else {
+    if (!key.startsWith('sk-or')) { showToast('OpenRouter keys start with "sk-or"', 'error'); return; }
+    setORKey(key);
+  }
+  showToast('Key saved! ✓', 'success');
+  clearChat();
+}
+
+/* ── changeGeminiKey (called from AI analysis panel too) ── */
+function changeGeminiKey() {
+  if (chatIsOpen) {
+    openChatSettings();
+  } else {
+    openChat();
+    setTimeout(openChatSettings, 320);
+  }
+}
+
+/* ── Chip / suggestion ── */
 function useChip(btn) {
-  const text = btn.textContent;
+  const text  = btn.textContent;
   const input = document.getElementById('chatInput');
-  if (input) { input.value = text; autoResizeChat(input); input.focus(); }
+  if (input) { input.value = text.replace('💡 ',''); autoResizeChat(input); input.focus(); }
 }
 
-/* ---------- keyboard ---------- */
+/* ── Keyboard ── */
 function chatKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
 }
@@ -1968,143 +2305,130 @@ function autoResizeChat(el) {
   el.style.height = Math.min(el.scrollHeight, 100) + 'px';
 }
 
-/* ---------- API key setup inline inside chat ---------- */
-function showChatKeySetup() {
-  const box = document.getElementById('chatMessages');
-  box.innerHTML = `
-    <div class="chat-key-setup">
-      <div class="chat-key-setup-title">⚡ Connect Gemini AI (Free)</div>
-      <div class="chat-key-setup-sub">
-        Get a free API key at
-        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com/app/apikey</a>
-        — no credit card needed. Paste it below and it saves permanently.
-      </div>
-      <div class="chat-key-input-row">
-        <input
-          type="password"
-          id="chatKeyInput"
-          class="chat-key-input"
-          placeholder="AIza…"
-          autocomplete="off"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();saveChatKey()}"
-        >
-        <button class="chat-key-save-btn" onclick="saveChatKey()">Save</button>
-      </div>
-      <div style="font-size:10px;color:var(--text3)">🔒 Stored only in your browser. Never shared.</div>
-    </div>`;
-  setTimeout(() => document.getElementById('chatKeyInput')?.focus(), 100);
-}
+/* ── UNIFIED API CALL — patient, waits for full response ── */
+async function callAI(messages, systemPrompt, maxTokens = 700) {
+  const provider = getChatProvider();
 
-function saveChatKey() {
-  const input = document.getElementById('chatKeyInput');
-  const key   = input?.value?.trim() || '';
-  if (!key) { showToast('Please paste your API key.', 'error'); return; }
-  if (!key.startsWith('AIza')) { showToast('Key should start with "AIza"', 'error'); return; }
-  if (key.length < 30) { showToast('Key looks too short.', 'error'); return; }
-  saveGeminiKey(key);
-  showToast('API key saved! ✓', 'success');
-  // Reset chat to welcome screen
-  clearChat();
-}
+  if (provider === 'gemini') {
+    // Gemini format
+    const key      = getGeminiKey();
+    if (!key) throw new Error('NO_KEY');
 
-/* ---------- changeGeminiKey (works from anywhere — chat + AI panel) ---------- */
-function changeGeminiKey() {
-  const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
-  localStorage.removeItem(k);
-  if (chatIsOpen) {
-    showChatKeySetup();
+    // Inject system as first user message
+    const contents = messages.map((m, i) => {
+      if (i === 0 && m.role === 'user') {
+        return { role:'user', parts:[{ text: systemPrompt + '\n\nUser: ' + m.parts[0].text }] };
+      }
+      return m;
+    });
+
+    const res = await fetch(geminiURL(key), {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        contents,
+        generationConfig:{ temperature:0.8, maxOutputTokens: maxTokens }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      const msg = err?.error?.message || `HTTP ${res.status}`;
+      if (res.status===429 || msg.toLowerCase().includes('quota')) throw new Error('QUOTA');
+      if (res.status===400 || res.status===403) throw new Error('INVALID_KEY');
+      throw new Error(msg);
+    }
+    const data  = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
   } else {
-    openChat();
-    setTimeout(showChatKeySetup, 320);
+    // OpenRouter format
+    const key   = getORKey();
+    const model = getORModel();
+    if (!key) throw new Error('NO_KEY');
+
+    // Convert Gemini-style history to OpenAI-style messages
+    const oaiMessages = [
+      { role:'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: m.role === 'model' ? 'assistant' : 'user',
+        content: m.parts[0].text
+      }))
+    ];
+
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization': `Bearer ${key}`,
+        'HTTP-Referer': window.location.origin,
+        'X-Title': 'IdeaForge Pro'
+      },
+      body: JSON.stringify({
+        model,
+        messages: oaiMessages,
+        max_tokens: maxTokens,
+        temperature: 0.8
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      const msg = err?.error?.message || `HTTP ${res.status}`;
+      if (res.status===429) throw new Error('QUOTA');
+      if (res.status===401) throw new Error('INVALID_KEY');
+      throw new Error(msg);
+    }
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || '';
   }
 }
 
-/* ---------- send message ---------- */
+/* ── SEND CHAT MESSAGE ── */
 async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const text  = input?.value?.trim();
   if (!text || chatInFlight) return;
 
-  const key = getGeminiKey();
-  if (!key) {
-    showChatKeySetup();
+  // Check key
+  const provider = getChatProvider();
+  const hasKey   = provider==='gemini' ? !!getGeminiKey() : !!getORKey();
+  if (!hasKey) { showChatKeySetup(); return; }
+
+  // Detect "fill form" intent
+  const formFillTriggers = ['fill idea form','fill form','fill the form','auto fill','create idea form','build my idea','evaluate my idea','fill startup form','help me fill'];
+  const isFormFill = formFillTriggers.some(t => text.toLowerCase().includes(t));
+
+  input.value = '';
+  input.style.height = 'auto';
+  appendChatMsg('user', text);
+  chatHistory.push({ role:'user', parts:[{ text }] });
+
+  if (isFormFill) {
+    chatHistory.pop(); // handle separately
+    await handleFormFill(text);
     return;
   }
 
-  // Clear input immediately
-  input.value = '';
-  input.style.height = 'auto';
-
-  // Append user bubble
-  appendChatMsg('user', text);
-
-  // Add to history
-  chatHistory.push({ role:'user', parts:[{ text }] });
-
-  // Show typing
   const typingId = showTyping();
-  chatInFlight = true;
-  const sendBtn = document.getElementById('chatSendBtn');
+  chatInFlight   = true;
+  const sendBtn  = document.getElementById('chatSendBtn');
   if (sendBtn) sendBtn.disabled = true;
 
   try {
-    const systemCtx = buildChatSystemContext();
-
-    // Inject system context into the first message of the contents array
-    const contents = chatHistory.map((msg, i) => {
-      if (i === 0 && msg.role === 'user') {
-        return { role:'user', parts:[{ text: systemCtx + '\n\nUser: ' + msg.parts[0].text }] };
-      }
-      return msg;
-    });
-
-    const res = await fetch(geminiURL(key), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        generationConfig: { temperature:0.8, maxOutputTokens:600 }
-      })
-    });
-
+    const reply = await callAI(chatHistory, buildChatSystemContext(), 700);
     removeTyping(typingId);
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      const errMsg  = errData?.error?.message || `HTTP ${res.status}`;
-      chatInFlight  = false;
-      if (sendBtn) sendBtn.disabled = false;
-      chatHistory.pop(); // remove failed user message
-
-      if (res.status === 429 || errMsg.toLowerCase().includes('quota')) {
-        appendChatMsg('ai', `⚠️ **Daily quota exceeded.**\n\nYour free Gemini key has hit its daily limit. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) and create a new key — then click **⚙** above to update it.`);
-      } else if (res.status === 400 || res.status === 403) {
-        appendChatMsg('ai', `⚠️ **Invalid API key.** Please click **⚙** above and enter a valid Gemini API key.`);
-        const k = currentUser ? 'if_gemini_key_' + currentUser.uid : 'if_gemini_key';
-        localStorage.removeItem(k);
-      } else {
-        appendChatMsg('ai', `⚠️ **Error (${res.status}):** ${errMsg}`);
-      }
-      return;
-    }
-
-    const data  = await res.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
     if (!reply) {
-      appendChatMsg('ai', `I couldn't generate a response. Please try again.`);
+      appendChatMsg('ai', "I couldn't generate a response. Please try again.");
       chatHistory.pop();
     } else {
       appendChatMsg('ai', reply);
       chatHistory.push({ role:'model', parts:[{ text: reply }] });
-      // Cap history at 20 exchanges to avoid token bloat
       if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
     }
-
-  } catch (e) {
+  } catch(e) {
     removeTyping(typingId);
-    appendChatMsg('ai', `⚠️ **Network error.** Please check your connection.`);
     chatHistory.pop();
+    handleChatError(e);
   }
 
   chatInFlight = false;
@@ -2112,49 +2436,316 @@ async function sendChatMessage() {
   document.getElementById('chatInput')?.focus();
 }
 
+function handleChatError(e) {
+  const msg = e.message;
+  if (msg === 'NO_KEY') {
+    showChatKeySetup();
+  } else if (msg === 'QUOTA') {
+    appendChatMsg('ai', `⚠️ **Daily quota exceeded.**\n\nYour free API key has hit its daily limit.\n- **Gemini:** Create a new key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)\n- **OpenRouter:** Use a different free model or get a new key at [openrouter.ai/keys](https://openrouter.ai/keys)\n\nClick **⚙** above to update your key.`);
+  } else if (msg === 'INVALID_KEY') {
+    appendChatMsg('ai', `⚠️ **Invalid API key.** Click **⚙** above to enter a valid key.`);
+    const k = getChatProvider()==='gemini'
+      ? (currentUser ? 'if_gemini_key_'+currentUser.uid : 'if_gemini_key')
+      : (currentUser ? 'if_or_key_'+currentUser.uid : 'if_or_key');
+    localStorage.removeItem(k);
+  } else if (msg?.includes('NetworkError') || msg?.includes('Failed to fetch')) {
+    appendChatMsg('ai', `⚠️ **Network error.** Please check your internet connection.`);
+  } else {
+    appendChatMsg('ai', `⚠️ **Error:** ${msg}`);
+  }
+}
+
+/* ── FORM FILL FROM CHAT ── */
+let formFillState = null; // tracks multi-turn form fill conversation
+
+async function handleFormFill(userText) {
+  if (!formFillState) {
+    // First message — ask AI if it has enough info or needs clarification
+    formFillState = { stage:'clarify', description: userText, clarifications:[] };
+
+    const typingId = showTyping();
+    chatInFlight   = true;
+
+    try {
+      const clarifyPrompt = `You are a startup idea analyst. A user wants to evaluate their startup idea. They said: "${userText}"
+
+Your job: Determine if you have ENOUGH information to fill a comprehensive startup evaluation form, OR if you need to ask 1-3 clarifying questions.
+
+The form requires: idea name, domain, problem statement, target user, solution, business model (who pays, pricing), technologies, market path, and moats.
+
+If you have enough info → reply ONLY with this JSON:
+{"ready": true, "summary": "brief summary of what you understood"}
+
+If you need clarification → reply ONLY with this JSON:
+{"ready": false, "questions": ["question 1", "question 2"]}
+
+Reply with ONLY valid JSON — no markdown, no explanation.`;
+
+      const reply = await callAI(
+        [{ role:'user', parts:[{ text: clarifyPrompt }] }],
+        'You are a startup idea analyst. Reply only with valid JSON.',
+        300
+      );
+      removeTyping(typingId);
+      chatInFlight = false;
+
+      const clean  = reply.replace(/```json|```/gi,'').trim();
+      const parsed = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || clean);
+
+      if (parsed.ready) {
+        appendChatMsg('ai', `✅ Great! I have enough information. Let me fill your startup evaluation form now…\n\n*"${parsed.summary}"*`);
+        await executFormFill(userText, []);
+      } else {
+        const qText = (parsed.questions||[]).map((q,i) => `${i+1}. ${q}`).join('\n');
+        appendChatMsg('ai', `To fill your form accurately, I need a few more details:\n\n${qText}\n\nPlease answer these and I'll fill the entire form automatically!`);
+        formFillState.pendingQuestions = parsed.questions;
+        // Push to chat history so next message is treated as answers
+        chatHistory.push({ role:'user', parts:[{ text: userText }] });
+        chatHistory.push({ role:'model', parts:[{ text: qText }] });
+      }
+    } catch(e) {
+      removeTyping(typingId);
+      chatInFlight = false;
+      formFillState = null;
+      handleChatError(e);
+    }
+    document.getElementById('chatSendBtn').disabled = false;
+
+  } else if (formFillState.stage === 'clarify') {
+    // User answered the clarification questions
+    appendChatMsg('user', userText);
+    formFillState.answers = userText;
+    formFillState.stage   = 'filling';
+    appendChatMsg('ai', `Perfect! Now let me fill your complete startup evaluation form…`);
+    await executFormFill(formFillState.description, [userText]);
+  }
+}
+
+async function executFormFill(description, answers) {
+  // Show progress overlay
+  const overlay  = document.getElementById('formFillOverlay');
+  const statusEl = document.getElementById('formFillStatus');
+  const barEl    = document.getElementById('formFillBar');
+  const stepsEl  = document.getElementById('formFillSteps');
+  overlay.style.display = 'flex';
+
+  const STEPS = [
+    'Understanding your idea…',
+    'Identifying the problem & user…',
+    'Designing solution framework…',
+    'Building market & business model…',
+    'Evaluating moats & risks…',
+    'Writing startup thesis…',
+    'Calculating scores…',
+    'Saving to your portfolio…'
+  ];
+
+  function setStep(i) {
+    if (statusEl) statusEl.textContent = STEPS[i];
+    if (barEl)    barEl.style.width    = ((i+1)/STEPS.length*100) + '%';
+    if (stepsEl) {
+      const div = document.createElement('div');
+      div.className = 'form-fill-step active';
+      div.innerHTML = `<span class="form-fill-step-dot"></span>${STEPS[i]}`;
+      stepsEl.appendChild(div);
+      stepsEl.scrollTop = stepsEl.scrollHeight;
+      // Mark previous as done
+      const prev = stepsEl.querySelectorAll('.form-fill-step.active');
+      prev.forEach((el, idx) => { if (idx < prev.length-1) { el.classList.remove('active'); el.classList.add('done'); } });
+    }
+  }
+
+  try {
+    setStep(0);
+
+    const answerText = answers.length ? `\n\nAdditional clarifications from user: ${answers.join(' | ')}` : '';
+    const today_str  = today();
+
+    const fillPrompt = `You are an expert startup evaluator. Based on the following idea description, generate a COMPLETE startup evaluation form with realistic, specific, detailed data.
+
+IDEA DESCRIPTION: "${description}"${answerText}
+
+Return ONLY a valid JSON object with ALL these fields:
+{
+  "name": "Catchy startup name with tagline",
+  "domains": ["Primary domain"],
+  "tags": ["tag1","tag2","tag3"],
+  "valueChain": "How the current system works today (2-3 sentences)",
+  "frictions": ["friction 1","friction 2","friction 3","friction 4"],
+  "commonBelief": "What most people assume about this space",
+  "contrarian": "It turns out that... (contrarian insight)",
+  "contrarian2": "because... (reason for the contrarian insight)",
+  "evidence": "Evidence supporting this insight",
+  "insight": "Full contrarian insight statement in one sentence",
+  "problemUser": "Type of user who has this problem",
+  "problemBecause": "main struggle or pain",
+  "problemDef": "root cause of the problem",
+  "scores": {"pain":4,"urgency":4,"budget":3,"alternatives":4,"awareness":3},
+  "targetRole": "Specific target user role/title",
+  "targetContext": "Context where they face this problem",
+  "dimensions": ["Speed","Cost"],
+  "solution": "First-principles solution description (2-3 sentences)",
+  "solutionHelp": "who you help",
+  "solutionAchieve": "what they achieve",
+  "solutionBy": "how your solution works",
+  "solutionUnlike": "what you're different from",
+  "technologies": "Key technologies used",
+  "mvp": "Yes",
+  "beachheadWho": "Smallest specific niche you can dominate",
+  "beachheadUseCase": "Specific use case in this niche",
+  "beachheadWin": "Why you can win in this niche",
+  "marketPath": ["Initial niche","Next market","Long-term vision"],
+  "bizWho": "Who pays",
+  "bizWhat": "What they pay for",
+  "bizPricing": "Pricing model (e.g. per seat/month)",
+  "recurring": "Yes",
+  "bizPrice": "Price point (e.g. $X/month)",
+  "bizCosts": "Main costs",
+  "grossMargin": "High",
+  "ltv": "LTV estimate vs CAC estimate",
+  "channels": ["Primary channel","Secondary channel"],
+  "channelExplain": "How to acquire first 1000 customers",
+  "q1": "Why 10x better than alternatives",
+  "q2": "Why now — timing reason",
+  "q3": "Niche dominance strategy",
+  "q4": "Team/founder advantage",
+  "q5": "Distribution strategy",
+  "q6": "Long-term durability",
+  "q7": "The secret/insight others don't have",
+  "overallFilter": "Strong",
+  "moats": ["Proprietary tech","Data advantage"],
+  "moatExplain": "Explanation of strongest moat",
+  "risks": ["Risk 1","Risk 2","Risk 3","Risk 4","Risk 5"],
+  "risksControl": "Mostly",
+  "asymmetricWork": "Yes",
+  "asymmetricFail": "Yes",
+  "asymmetricExplain": "Why this is an asymmetric bet",
+  "assumptions": ["Problem is real","Willingness to pay"],
+  "assumptionList": ["Assumption 1","Assumption 2","Assumption 3"],
+  "experiments": ["Customer interviews","Prototype"],
+  "experimentDesc": "Validation experiments to run",
+  "evidence2": "Evidence collected so far",
+  "summaryInsight": "Core insight in one sentence",
+  "summaryProblem": "Core problem in one sentence",
+  "summarySolution": "Solution in one sentence",
+  "summaryUser": "Target user",
+  "summaryMarket": "Market path (niche → mid → large)",
+  "summaryBiz": "Business model summary",
+  "summaryDist": "Distribution summary",
+  "summaryMoat": "Moat summary",
+  "summaryWhy": "Why now",
+  "summaryVision": "10-year vision",
+  "conviction": 8,
+  "finalDecision": "Keep exploring",
+  "finalNotes": "Key next step or observation"
+}
+
+Be specific, realistic and detailed. The scores should reflect the actual strength of the idea. Return ONLY the JSON object — no markdown, no code fences.`;
+
+    setStep(1);
+    await new Promise(r => setTimeout(r, 400));
+    setStep(2);
+
+    const reply = await callAI(
+      [{ role:'user', parts:[{ text: fillPrompt }] }],
+      'You are a startup evaluation expert. Return only valid JSON.',
+      2000  // higher token limit for form fill
+    );
+
+    setStep(3); await new Promise(r => setTimeout(r, 300));
+    setStep(4); await new Promise(r => setTimeout(r, 300));
+    setStep(5); await new Promise(r => setTimeout(r, 300));
+
+    const clean  = reply.replace(/```json|```/gi,'').trim();
+    const data   = JSON.parse(clean.match(/\{[\s\S]*\}/)?.[0] || clean);
+
+    setStep(6);
+
+    // Build full idea object
+    const newIdea = {
+      ...blank(),
+      ...data,
+      id:   Date.now().toString(),
+      date: today_str,
+      // Ensure arrays are arrays
+      domains:       Array.isArray(data.domains)       ? data.domains       : [data.domains||'Other'],
+      tags:          Array.isArray(data.tags)           ? data.tags           : [],
+      frictions:     Array.isArray(data.frictions)      ? data.frictions      : ['','','',''],
+      dimensions:    Array.isArray(data.dimensions)     ? data.dimensions     : [],
+      channels:      Array.isArray(data.channels)       ? data.channels       : [],
+      moats:         Array.isArray(data.moats)          ? data.moats          : [],
+      risks:         Array.isArray(data.risks)          ? data.risks          : ['','','','',''],
+      assumptions:   Array.isArray(data.assumptions)    ? data.assumptions    : [],
+      assumptionList:Array.isArray(data.assumptionList) ? data.assumptionList : ['','',''],
+      experiments:   Array.isArray(data.experiments)    ? data.experiments    : [],
+      marketPath:    Array.isArray(data.marketPath)     ? data.marketPath     : ['','',''],
+      scores:        (data.scores && typeof data.scores==='object')
+                      ? data.scores
+                      : {pain:3,urgency:3,budget:3,alternatives:3,awareness:3},
+      conviction:    typeof data.conviction==='number' ? data.conviction : 7,
+    };
+
+    setStep(7);
+    ideas.push(newIdea);
+    await saveIdeaToDB(newIdea);
+    renderAll();
+
+    // Hide overlay
+    overlay.style.display = 'none';
+    formFillState = null;
+
+    // Chat confirmation
+    const score = totalScore(newIdea);
+    appendChatMsg('ai', `✅ **Done! "${newIdea.name}" has been saved to your portfolio.**\n\n**Problem Score:** ${score}/25 · **Conviction:** ${newIdea.conviction}/10 · **Decision:** ${newIdea.finalDecision}\n\nClick the idea card on the dashboard to view the full evaluation, or ask me anything about it!`);
+    chatHistory.push({ role:'model', parts:[{ text: `Form filled and saved: ${newIdea.name}` }] });
+
+    showToast(`"${newIdea.name}" saved to portfolio! ✓`, 'success');
+
+  } catch(e) {
+    overlay.style.display = 'none';
+    formFillState = null;
+    if (e.message === 'NO_KEY') { showChatKeySetup(); return; }
+    appendChatMsg('ai', `⚠️ **Form fill failed.**\n\n${e.message === 'QUOTA' ? 'Daily quota exceeded — try a different API key.' : 'Could not parse AI response. Try describing your idea more clearly and try again.'}`);
+  }
+  chatInFlight = false;
+  document.getElementById('chatSendBtn').disabled = false;
+}
+
 function buildChatSystemContext() {
   const selId     = document.getElementById('chatIdeaContext')?.value || '';
   const focusIdea = selId ? ideas.find(i => i.id === selId) : null;
-
-  let ctx = `You are an expert startup advisor and VC mentor inside IdeaForge Pro.
-You have full access to the user's startup idea portfolio. Be specific, actionable, honest, concise.
-Use markdown: **bold** for key points, bullet lists for clarity. Under 250 words unless detail is needed.
-`;
-
+  let ctx = `You are an expert startup advisor and VC mentor inside IdeaForge Pro. Be specific, actionable, honest, concise. Use markdown: **bold** for key points, bullet lists for clarity. Under 250 words unless detail is needed.\n`;
   if (focusIdea) {
     const s = totalScore(focusIdea);
     ctx += `\nFOCUSED IDEA: "${focusIdea.name}"
 Domain: ${(focusIdea.domains||[]).join(', ')||'N/A'} | Score: ${s}/25 | Conviction: ${focusIdea.conviction}/10 | Decision: ${focusIdea.finalDecision||'Undecided'}
 Problem: ${focusIdea.problemUser} struggles with ${focusIdea.problemBecause} because ${focusIdea.problemDef}
-Solution: We help ${focusIdea.solutionHelp} achieve ${focusIdea.solutionAchieve} by ${focusIdea.solutionBy}, unlike ${focusIdea.solutionUnlike}
+Solution: We help ${focusIdea.solutionHelp} achieve ${focusIdea.solutionAchieve} by ${focusIdea.solutionBy}
 Market: ${focusIdea.beachheadWho} → ${(focusIdea.marketPath||[]).join(' → ')}
-Biz: ${focusIdea.bizWho} pays ${focusIdea.bizPrice} for ${focusIdea.bizWhat}. Margin: ${focusIdea.grossMargin}. LTV/CAC: ${focusIdea.ltv||'N/A'}
+Biz: ${focusIdea.bizWho} pays ${focusIdea.bizPrice} for ${focusIdea.bizWhat}. Margin: ${focusIdea.grossMargin}
 Moats: ${(focusIdea.moats||[]).join(', ')||'None'} | Tech: ${focusIdea.technologies||'N/A'} | MVP: ${focusIdea.mvp||'?'}
-Risks: ${(focusIdea.risks||[]).filter(Boolean).join('; ')||'None listed'}`;
+Risks: ${(focusIdea.risks||[]).filter(Boolean).join('; ')||'None'}`;
   } else if (ideas.length) {
     ctx += `\nPORTFOLIO (${ideas.length} ideas):\n`;
     ideas.forEach((idea, i) => {
-      ctx += `${i+1}. "${idea.name||'Untitled'}" — Score:${totalScore(idea)}/25, Conviction:${idea.conviction||'?'}/10, Decision:${idea.finalDecision||'Undecided'}, Domains:${(idea.domains||[]).join('/')||'N/A'}\n`;
+      ctx += `${i+1}. "${idea.name||'Untitled'}" — Score:${totalScore(idea)}/25, Conviction:${idea.conviction||'?'}/10, Decision:${idea.finalDecision||'Undecided'}\n`;
     });
   } else {
-    ctx += `\nThe user has no ideas saved yet. Help them understand how to evaluate a startup idea.`;
+    ctx += `\nUser has no ideas yet. Help them get started.`;
   }
   return ctx;
 }
 
-/* ---------- DOM helpers ---------- */
+/* ── DOM helpers ── */
 function appendChatMsg(role, text) {
   const box = document.getElementById('chatMessages');
-  const welcome = box.querySelector('.chat-welcome, .chat-key-setup');
-  if (welcome) welcome.remove();
-
+  const old = box.querySelector('.chat-welcome, .chat-key-setup');
+  if (old) old.remove();
   const div  = document.createElement('div');
   div.className = `chat-msg ${role}`;
-  const time = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' });
-  const av   = role === 'ai'
-    ? `<div class="chat-avatar ai">AI</div>`
-    : `<div class="chat-avatar user-av">You</div>`;
-  const bub  = role === 'ai'
+  const time = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  const av   = role==='ai' ? `<div class="chat-avatar ai">AI</div>` : `<div class="chat-avatar user-av">You</div>`;
+  const bub  = role==='ai'
     ? `<div class="chat-bubble">${markdownToHTML(text)}</div>`
     : `<div class="chat-bubble">${escHTML(text)}</div>`;
   div.innerHTML = av + `<div style="min-width:0">${bub}<div class="chat-meta">${time}</div></div>`;
@@ -2167,8 +2758,7 @@ function showTyping() {
   const id  = 'typing-' + Date.now();
   const div = document.createElement('div');
   div.className = 'chat-msg ai'; div.id = id;
-  div.innerHTML = `<div class="chat-avatar ai">AI</div>
-    <div class="chat-bubble"><div class="chat-typing"><span></span><span></span><span></span></div></div>`;
+  div.innerHTML = `<div class="chat-avatar ai">AI</div><div class="chat-bubble"><div class="chat-typing"><span></span><span></span><span></span></div></div>`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
   return id;
@@ -2177,15 +2767,16 @@ function removeTyping(id) { document.getElementById(id)?.remove(); }
 
 function clearChat() {
   chatHistory = [];
-  const box   = document.getElementById('chatMessages');
-  box.innerHTML = `<div class="chat-welcome">
-    <div class="chat-welcome-icon">✦</div>
-    <div class="chat-welcome-title">Chat cleared</div>
-    <div class="chat-welcome-sub">Start a new conversation below.</div>
-  </div>`;
+  formFillState = null;
+  document.getElementById('chatMessages').innerHTML = `
+    <div class="chat-welcome">
+      <div class="chat-welcome-icon">✦</div>
+      <div class="chat-welcome-title">Chat cleared</div>
+      <div class="chat-welcome-sub">Start a new conversation. Say <strong>"Fill idea form"</strong> to auto-fill a startup evaluation.</div>
+    </div>`;
 }
 
-/* ---------- markdown → HTML (lightweight) ---------- */
+/* ── markdown → HTML ── */
 function markdownToHTML(raw) {
   let t = raw
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -2194,34 +2785,19 @@ function markdownToHTML(raw) {
     .replace(/`([^`]+)`/g,'<code>$1</code>')
     .replace(/^#{1,4}\s+(.+)$/gm,'<strong>$1</strong>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,'<a href="$2" target="_blank" style="color:var(--accent)">$1</a>');
-
-  // Lists
-  const lines = t.split('\n');
-  const out = []; let inList = false;
+  const lines = t.split('\n'); const out = []; let inList = false;
   for (const line of lines) {
-    const li = line.match(/^\s*[-*•]\s+(.+)/);
-    const ol = line.match(/^\s*\d+\.\s+(.+)/);
-    if (li || ol) {
-      if (!inList) { out.push('<ul style="padding-left:16px;margin:4px 0">'); inList = true; }
-      out.push(`<li style="margin-bottom:3px">${(li||ol)[1]}</li>`);
-    } else {
-      if (inList) { out.push('</ul>'); inList = false; }
-      out.push(line);
-    }
+    const li = line.match(/^\s*[-*•]\s+(.+)/); const ol = line.match(/^\s*\d+\.\s+(.+)/);
+    if (li||ol) { if(!inList){out.push('<ul style="padding-left:16px;margin:4px 0">');inList=true;} out.push(`<li style="margin-bottom:3px">${(li||ol)[1]}</li>`); }
+    else { if(inList){out.push('</ul>');inList=false;} out.push(line); }
   }
-  if (inList) out.push('</ul>');
-
-  return out.join('\n')
-    .replace(/\n\n/g,'</p><p>')
-    .replace(/^(?!<[uop]|<li|<st|<em|<co|<a\s)(.+)$/gm,'<p>$1</p>')
-    .replace(/<p><\/p>/g,'')
-    .trim();
+  if(inList)out.push('</ul>');
+  return out.join('\n').replace(/\n\n/g,'</p><p>').replace(/^(?!<[uop\/]|<li|<st|<em|<co|<a\s)(.+)$/gm,'<p>$1</p>').replace(/<p><\/p>/g,'').trim();
 }
 function escHTML(t) {
   return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 }
 
-// ===================== PRESET SAMPLE =====================
 // ===================== PRESET SAMPLE (first-time user only) =====================
 async function loadPreset() {
   // Only load sample if user has zero ideas (new account)

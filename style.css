@@ -1463,6 +1463,56 @@ body *{cursor:auto}
   .chat-fab{bottom:72px}
 }
 
+/* ================================================================
+   API SETTINGS MODAL
+================================================================ */
+.provider-tabs{display:flex;gap:8px;margin-bottom:18px}
+.provider-tab{flex:1;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--bg3);cursor:pointer;transition:all 0.2s;text-align:left}
+.provider-tab:hover{border-color:var(--border-bright)}
+.provider-tab.active{background:var(--accent-dim);border-color:var(--accent)}
+.provider-tab.active .provider-tab-name{color:var(--accent)}
+.provider-tab-icon{font-size:20px;flex-shrink:0}
+.provider-tab-name{font-family:var(--font-d);font-size:13px;font-weight:700;color:var(--text)}
+.provider-tab-sub{font-size:10px;color:var(--text3);margin-top:1px}
+.provider-settings{animation:fadeSlideUp 0.2s var(--ease)}
+.settings-field-label{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:7px}
+.settings-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-family:var(--font-b);font-size:12.5px;padding:9px 12px;outline:none;transition:border-color 0.2s;appearance:none}
+.settings-input:focus{border-color:var(--accent)}
+.settings-input option{background:var(--bg3)}
+.settings-eye{padding:8px 12px;border-radius:var(--r-sm);background:var(--bg3);border:1px solid var(--border);color:var(--text3);cursor:pointer;font-size:14px;transition:all 0.15s;flex-shrink:0}
+.settings-eye:hover{border-color:var(--border-bright)}
+.settings-hint{font-size:10.5px;color:var(--text3);margin-top:6px;line-height:1.6}
+.settings-hint a{color:var(--accent);text-decoration:none}
+.settings-hint a:hover{text-decoration:underline}
+
+/* ================================================================
+   FORM FILL OVERLAY
+================================================================ */
+.form-fill-overlay{position:fixed;inset:0;z-index:800;background:rgba(6,6,8,0.85);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center}
+.form-fill-card{width:420px;max-width:90vw;border-radius:20px;padding:36px 32px;text-align:center;border:1px solid rgba(0,245,200,0.2);animation:fadeSlideUp 0.4s var(--ease)}
+.form-fill-icon{font-size:36px;margin-bottom:14px;color:var(--accent)}
+.form-fill-title{font-family:var(--font-d);font-size:20px;font-weight:800;color:var(--text);margin-bottom:8px}
+.form-fill-sub{font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6;min-height:40px}
+.form-fill-progress{height:4px;background:var(--bg4);border-radius:99px;overflow:hidden;margin-bottom:20px}
+.form-fill-bar{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:99px;width:0%;transition:width 0.6s var(--ease)}
+.form-fill-steps{display:flex;flex-direction:column;gap:6px;text-align:left;max-height:180px;overflow-y:auto}
+.form-fill-step{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text3);animation:fadeSlideUp 0.2s var(--ease)}
+.form-fill-step.done{color:var(--success)}
+.form-fill-step.active{color:var(--accent)}
+.form-fill-step-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0}
+.form-fill-step.done .form-fill-step-dot{background:var(--success)}
+.form-fill-step.active .form-fill-step-dot{background:var(--accent);animation:onlinePulse 0.8s infinite}
+
+/* ================================================================
+   EXPORT MODAL
+================================================================ */
+.export-format-row{display:flex;gap:10px}
+.export-fmt-btn{flex:1;display:flex;align-items:center;gap:12px;padding:14px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--bg3);cursor:pointer;transition:all 0.15s;text-align:left}
+.export-fmt-btn:hover{border-color:var(--border-bright)}
+.export-fmt-btn.active{background:var(--accent-dim);border-color:var(--accent)}
+.export-check-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text2);cursor:pointer}
+.export-check-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+
 /* Responsive inline grids used in detail view */
 .biz-3col{
   display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;

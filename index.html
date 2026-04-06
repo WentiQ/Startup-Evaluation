@@ -151,7 +151,7 @@
       </div>
       <button class="sidebar-signout-btn" id="signOutBtn" title="Sign out">⏻</button>
     </div>
-    <button class="btn-export-all" id="btnExportAll">↓ Export All Data</button>
+    <button class="btn-export-all" id="btnExportAll" onclick="openExportModal()">↓ Export Ideas</button>
     <div class="sidebar-version">v2.0 · IdeaForge Pro</div>
   </div>
 </aside>
@@ -384,14 +384,14 @@
       </div>
       <div>
         <div class="chat-window-name">AI Advisor</div>
-        <div class="chat-window-status"><span class="chat-online-dot"></span> Powered by Gemini · Free</div>
+        <div class="chat-window-status"><span class="chat-online-dot"></span> <span id="chatProviderLabel">Gemini Free</span></div>
       </div>
     </div>
     <div class="chat-window-actions">
       <select id="chatIdeaContext" title="Focus on idea">
         <option value="">All ideas</option>
       </select>
-      <button class="chat-hdr-btn" onclick="changeGeminiKey()" title="API Key settings">⚙</button>
+      <button class="chat-hdr-btn" id="chatSettingsBtn" onclick="openChatSettings()" title="API Settings">⚙</button>
       <button class="chat-hdr-btn" onclick="clearChat()" title="Clear chat">🗑</button>
       <button class="chat-hdr-btn chat-hdr-close" onclick="closeChat()" title="Close">✕</button>
     </div>
@@ -404,9 +404,9 @@
     <button class="chat-chip" onclick="useChip(this)">Best pricing strategy?</button>
     <button class="chat-chip" onclick="useChip(this)">Compare my ideas</button>
     <button class="chat-chip" onclick="useChip(this)">VC perspective</button>
-    <button class="chat-chip" onclick="useChip(this)">Find first customers</button>
+    <button class="chat-chip" onclick="useChip(this)">Find first 100 customers</button>
     <button class="chat-chip" onclick="useChip(this)">Top competitors?</button>
-    <button class="chat-chip" onclick="useChip(this)">Strongest moats?</button>
+    <button class="chat-chip" onclick="useChip(this)">💡 Fill idea form from my description</button>
   </div>
 
   <!-- Messages -->
@@ -414,7 +414,7 @@
     <div class="chat-welcome">
       <div class="chat-welcome-icon">✦</div>
       <div class="chat-welcome-title">Your AI Startup Advisor</div>
-      <div class="chat-welcome-sub">I know all your ideas and evaluations. Ask me anything — validation, strategy, comparison, or brainstorming.</div>
+      <div class="chat-welcome-sub">Ask anything — or say <strong>"Fill idea form"</strong> and describe your startup idea. I'll complete the entire evaluation form and save it automatically.</div>
     </div>
   </div>
 
@@ -424,7 +424,7 @@
       <textarea
         id="chatInput"
         class="chat-input"
-        placeholder="Ask anything about your ideas…"
+        placeholder="Ask anything, or describe your startup idea to auto-fill the form…"
         rows="1"
         onkeydown="chatKeydown(event)"
         oninput="autoResizeChat(this)"
@@ -436,7 +436,139 @@
         </svg>
       </button>
     </div>
-    <div class="chat-input-hint">Enter to send · Shift+Enter new line</div>
+    <div class="chat-input-hint">Enter to send · Shift+Enter new line · <span id="chatModelLabel">Gemini 2.0 Flash Lite</span></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     API SETTINGS MODAL
+============================================================ -->
+<div class="modal-overlay" id="apiSettingsOverlay" style="display:none">
+  <div class="modal glass" style="width:460px;max-width:95vw">
+    <div class="modal-title">⚙ AI Provider Settings</div>
+    <div style="margin-bottom:20px">
+
+      <!-- Provider selector tabs -->
+      <div class="provider-tabs">
+        <button class="provider-tab active" data-provider="gemini" onclick="selectProvider('gemini',this)">
+          <span class="provider-tab-icon">✦</span>
+          <div>
+            <div class="provider-tab-name">Google Gemini</div>
+            <div class="provider-tab-sub">Free · 2.0 Flash Lite</div>
+          </div>
+        </button>
+        <button class="provider-tab" data-provider="openrouter" onclick="selectProvider('openrouter',this)">
+          <span class="provider-tab-icon">◈</span>
+          <div>
+            <div class="provider-tab-name">OpenRouter</div>
+            <div class="provider-tab-sub">100+ models · Free & paid</div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Gemini settings -->
+      <div id="geminiSettings" class="provider-settings">
+        <div class="settings-field-label">Gemini API Key</div>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="settingsGeminiKey" class="settings-input" placeholder="AIza…">
+          <button class="settings-eye" onclick="toggleInputVis('settingsGeminiKey')">👁</button>
+        </div>
+        <div class="settings-hint">Free key from <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com/app/apikey</a> — 15 req/min, 1M tokens/day</div>
+      </div>
+
+      <!-- OpenRouter settings -->
+      <div id="openrouterSettings" class="provider-settings" style="display:none">
+        <div class="settings-field-label">OpenRouter API Key</div>
+        <div style="display:flex;gap:8px">
+          <input type="password" id="settingsORKey" class="settings-input" placeholder="sk-or-v1-…">
+          <button class="settings-eye" onclick="toggleInputVis('settingsORKey')">👁</button>
+        </div>
+        <div class="settings-hint">Get free key at <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> — many free models available</div>
+
+        <div class="settings-field-label" style="margin-top:14px">Model</div>
+        <input type="text" id="settingsORModel" list="orModelList" class="settings-input" placeholder="Select or type model (e.g., openai/gpt-oss-120b:free)">
+        <datalist id="orModelList">
+          <option value="meta-llama/llama-3.2-11b-vision-instruct:free">Llama 3.2 11B (Free)</option>
+          <option value="meta-llama/llama-3.1-8b-instruct:free">Llama 3.1 8B (Free)</option>
+          <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (Free)</option>
+          <option value="mistralai/mistral-7b-instruct:free">Mistral 7B (Free)</option>
+          <option value="qwen/qwen-2.5-72b-instruct:free">Qwen 2.5 72B (Free)</option>
+          <option value="deepseek/deepseek-r1:free">DeepSeek R1 (Free)</option>
+          <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+          <option value="openai/gpt-4o">GPT-4o</option>
+          <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+          <option value="google/gemini-pro-1.5">Gemini Pro 1.5</option>
+        </datalist>
+        <div class="settings-hint">Free models have rate limits. Type any OpenRouter model (e.g., <code style="color:#ff6b6b">openai/gpt-oss-120b:free</code>) or <a href="https://openrouter.ai/models" target="_blank">browse all models →</a></div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeApiSettings()">Cancel</button>
+      <button class="btn-accent" onclick="saveApiSettings()">Save & Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     FORM FILL PROGRESS OVERLAY
+============================================================ -->
+<div class="form-fill-overlay" id="formFillOverlay" style="display:none">
+  <div class="form-fill-card glass">
+    <div class="form-fill-icon">✦</div>
+    <div class="form-fill-title">AI is filling your form…</div>
+    <div class="form-fill-sub" id="formFillStatus">Analysing your idea description…</div>
+    <div class="form-fill-progress">
+      <div class="form-fill-bar" id="formFillBar"></div>
+    </div>
+    <div class="form-fill-steps" id="formFillSteps"></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     EXPORT MODAL
+============================================================ -->
+<div class="modal-overlay" id="exportModalOverlay" style="display:none">
+  <div class="modal glass" style="width:440px;max-width:95vw">
+    <div class="modal-title">↓ Export Ideas</div>
+    <div style="margin-bottom:20px">
+      <div class="settings-field-label">Format</div>
+      <div class="export-format-row">
+        <button class="export-fmt-btn active" data-fmt="excel" onclick="selectExportFmt('excel',this)">
+          <span style="font-size:22px">📊</span>
+          <div>
+            <div style="font-weight:600;font-size:13px">Excel (.xlsx)</div>
+            <div style="font-size:11px;color:var(--text3)">All ideas in a spreadsheet</div>
+          </div>
+        </button>
+        <button class="export-fmt-btn" data-fmt="pdf" onclick="selectExportFmt('pdf',this)">
+          <span style="font-size:22px">📄</span>
+          <div>
+            <div style="font-weight:600;font-size:13px">PDF Report</div>
+            <div style="font-size:11px;color:var(--text3)">All ideas in one PDF</div>
+          </div>
+        </button>
+      </div>
+
+      <div class="settings-field-label" style="margin-top:16px">Sort by</div>
+      <select id="exportSortBy" class="settings-input">
+        <option value="score">Problem Score (High → Low)</option>
+        <option value="conviction">Conviction (High → Low)</option>
+        <option value="date_desc">Date Added (Newest first)</option>
+        <option value="date_asc">Date Added (Oldest first)</option>
+        <option value="name">Name (A → Z)</option>
+      </select>
+
+      <div class="settings-field-label" style="margin-top:14px">Include</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label class="export-check-row"><input type="checkbox" id="expAll" checked onchange="toggleExportAll(this)"> <span>All ideas (${ideas.length})</span></label>
+        <div id="exportIdeaChecks" style="padding-left:16px;display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeExportModal()">Cancel</button>
+      <button class="btn-accent" id="exportConfirmBtn" onclick="runExport()">↓ Export</button>
+    </div>
   </div>
 </div>
 
