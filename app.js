@@ -141,6 +141,75 @@ async function loadGeminiKeyFromDB() {
   return localStorage.getItem('if_gemini_key_' + currentUser.uid) || '';
 }
 
+// Save OpenRouter key to Firestore (per user)
+async function saveOpenRouterKeyToDB(key) {
+  if (!currentUser) return;
+  try {
+    const { setDoc } = fb();
+    await setDoc(userSettingsDoc(), { openrouterKey: key }, { merge: true });
+  } catch(e) { /* fallback to localStorage */ }
+  localStorage.setItem('if_or_key_' + currentUser.uid, key);
+}
+
+async function loadOpenRouterKeyFromDB() {
+  if (!currentUser) return '';
+  // Try Firestore first, fallback to localStorage
+  try {
+    const { getDoc } = fb();
+    const snap = await getDoc(userSettingsDoc());
+    if (snap.exists() && snap.data().openrouterKey) {
+      return snap.data().openrouterKey;
+    }
+  } catch(e) {}
+  return localStorage.getItem('if_or_key_' + currentUser.uid) || '';
+}
+
+// Save chat provider preference to Firestore (per user)
+async function saveChatProviderToDB(provider) {
+  if (!currentUser) return;
+  try {
+    const { setDoc } = fb();
+    await setDoc(userSettingsDoc(), { chatProvider: provider }, { merge: true });
+  } catch(e) { /* fallback to localStorage */ }
+  localStorage.setItem('if_chat_provider_' + currentUser.uid, provider);
+}
+
+async function loadChatProviderFromDB() {
+  if (!currentUser) return 'gemini';
+  // Try Firestore first, fallback to localStorage
+  try {
+    const { getDoc } = fb();
+    const snap = await getDoc(userSettingsDoc());
+    if (snap.exists() && snap.data().chatProvider) {
+      return snap.data().chatProvider;
+    }
+  } catch(e) {}
+  return localStorage.getItem('if_chat_provider_' + currentUser.uid) || 'gemini';
+}
+
+// Save OpenRouter model to Firestore (per user)
+async function saveOpenRouterModelToDB(model) {
+  if (!currentUser) return;
+  try {
+    const { setDoc } = fb();
+    await setDoc(userSettingsDoc(), { openrouterModel: model }, { merge: true });
+  } catch(e) { /* fallback to localStorage */ }
+  localStorage.setItem('if_or_model_' + currentUser.uid, model);
+}
+
+async function loadOpenRouterModelFromDB() {
+  if (!currentUser) return 'google/gemini-2.0-flash-exp:free';
+  // Try Firestore first, fallback to localStorage
+  try {
+    const { getDoc } = fb();
+    const snap = await getDoc(userSettingsDoc());
+    if (snap.exists() && snap.data().openrouterModel) {
+      return snap.data().openrouterModel;
+    }
+  } catch(e) {}
+  return localStorage.getItem('if_or_model_' + currentUser.uid) || 'google/gemini-2.0-flash-exp:free';
+}
+
 // ===================== PERSIST (replaces old localStorage persist) =====================
 async function persist() {
   // ideas array is already up-to-date — caller does DB write directly
@@ -162,6 +231,49 @@ function saveGeminiKey(key) {
   if (currentUser) saveGeminiKeyToDB(key.trim());
 }
 
+// ===================== GETTERS / SETTERS for OpenRouter key =====================
+function getORKey() {
+  if (!currentUser) return localStorage.getItem('if_or_key') || '';
+  return localStorage.getItem('if_or_key_' + currentUser.uid) || '';
+}
+function setORKey(k) {
+  const storageKey = currentUser
+    ? 'if_or_key_' + currentUser.uid
+    : 'if_or_key';
+  localStorage.setItem(storageKey, k.trim());
+  // Also save to Firestore in background
+  if (currentUser) saveOpenRouterKeyToDB(k.trim());
+}
+
+// ===================== GETTERS / SETTERS for OpenRouter model =====================
+function getORModel() {
+  if (!currentUser) return localStorage.getItem('if_or_model') || 'google/gemini-2.0-flash-exp:free';
+  return localStorage.getItem('if_or_model_' + currentUser.uid) || 'google/gemini-2.0-flash-exp:free';
+}
+function setORModel(m) {
+  const storageKey = currentUser
+    ? 'if_or_model_' + currentUser.uid
+    : 'if_or_model';
+  localStorage.setItem(storageKey, m);
+  // Also save to Firestore in background
+  if (currentUser) saveOpenRouterModelToDB(m);
+}
+
+// ===================== GETTERS / SETTERS for chat provider =====================
+function getChatProvider() {
+  if (!currentUser) return localStorage.getItem('if_chat_provider') || 'gemini';
+  return localStorage.getItem('if_chat_provider_' + currentUser.uid) || 'gemini';
+}
+function setChatProvider(p) {
+  const storageKey = currentUser
+    ? 'if_chat_provider_' + currentUser.uid
+    : 'if_chat_provider';
+  localStorage.setItem(storageKey, p);
+  // Also save to Firestore in background
+  if (currentUser) saveChatProviderToDB(p);
+  updateProviderUI();
+}
+
 // ===================== INIT (called after sign-in) =====================
 async function initApp() {
   await loadIdeasFromDB();
@@ -172,10 +284,23 @@ async function initApp() {
   updateHeroDate();
   applyTheme();
   initChatbot();
-  // Pre-load Gemini key from DB into localStorage cache
+  
+  // Pre-load all user settings from DB into localStorage cache
   if (currentUser) {
-    const savedKey = await loadGeminiKeyFromDB();
-    if (savedKey) localStorage.setItem('if_gemini_key_' + currentUser.uid, savedKey);
+    const savedGeminiKey = await loadGeminiKeyFromDB();
+    if (savedGeminiKey) localStorage.setItem('if_gemini_key_' + currentUser.uid, savedGeminiKey);
+    
+    const savedORKey = await loadOpenRouterKeyFromDB();
+    if (savedORKey) localStorage.setItem('if_or_key_' + currentUser.uid, savedORKey);
+    
+    const savedORModel = await loadOpenRouterModelFromDB();
+    if (savedORModel) localStorage.setItem('if_or_model_' + currentUser.uid, savedORModel);
+    
+    const savedProvider = await loadChatProviderFromDB();
+    if (savedProvider) localStorage.setItem('if_chat_provider_' + currentUser.uid, savedProvider);
+    
+    // Update UI with the restored provider
+    updateProviderUI();
   }
 }
 
