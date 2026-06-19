@@ -318,6 +318,14 @@ const PHASES = [
 
 const DOMAINS = ['Healthcare','Education','Energy','Finance','Logistics','Agriculture',
   'Software/Data','Climate','Consumer','Government','Media','Manufacturing','Other'];
+const SCORE_KEYS = ['pain','urgency','budget','alternatives','awareness'];
+const SCORE_LABELS = {
+  pain:'Pain',
+  urgency:'Urgency',
+  budget:'Budget',
+  alternatives:'Alternatives',
+  awareness:'Awareness'
+};
 
 function blank() {
   return {
@@ -352,7 +360,14 @@ function blank() {
 function today() { return new Date().toISOString().split('T')[0]; }
 function totalScore(idea) {
   if (!idea?.scores) return 0;
-  return Object.values(idea.scores).reduce((a,b)=>a+b,0);
+  return SCORE_KEYS.reduce((a,k)=>a+scoreValue(idea,k),0);
+}
+function scoreValue(idea, key, fallback=3) {
+  const value = idea?.scores?.[key];
+  return value === undefined || value === null || value === '' ? fallback : +value || fallback;
+}
+function scoreEntries(idea) {
+  return SCORE_KEYS.map(k => [k, scoreValue(idea, k)]);
 }
 function tierClass(s) { return s>=20?'score-high':s>=13?'score-mid':'score-low'; }
 function decCls(d) {
@@ -1019,8 +1034,8 @@ function populateForm(d) {
   s('f-commonBelief',d.commonBelief); s('f-contrarian',d.contrarian);
   s('f-contrarian2',d.contrarian2); s('f-evidence',d.evidence); s('f-insight',d.insight);
   s('f-problemUser',d.problemUser); s('f-problemBecause',d.problemBecause); s('f-problemDef',d.problemDef);
-  if(d.scores) Object.entries(d.scores).forEach(([k,v])=>{ s('f-score-'+k,v); const el=document.getElementById('sv-'+k); if(el)el.textContent=v; });
-  const t=Object.values(d.scores||{}).reduce((a,b)=>a+b,0);
+  scoreEntries(d).forEach(([k,v])=>{ s('f-score-'+k,v); const el=document.getElementById('sv-'+k); if(el)el.textContent=v; });
+  const t=totalScore(d);
   const el=document.getElementById('scoreTotalDisp'); if(el)el.textContent=t;
   const fsn=document.getElementById('fsnScoreVal'); if(fsn)fsn.textContent=t+'/25';
   s('f-targetRole',d.targetRole); s('f-targetContext',d.targetContext);
@@ -1148,9 +1163,9 @@ function buildDetailHTML(idea) {
     <!-- Score bars -->
     <div class="detail-card">
       <div class="dc-header"><span class="dc-badge">PHASE 3</span><span class="dc-title">Problem Score Analysis</span></div>
-      ${Object.entries(idea.scores||{}).map(([k,v])=>`
+      ${scoreEntries(idea).map(([k,v])=>`
         <div class="sb-row">
-          <span class="sb-label">${{pain:'Pain',urgency:'Urgency',budget:'Budget',alternatives:'Poor Alternatives',awareness:'Awareness'}[k]||k}</span>
+          <span class="sb-label">${SCORE_LABELS[k]||k}</span>
           <div class="sb-track"><div class="sb-fill" data-pct="${v/5*100}"></div></div>
           <span class="sb-num">${v}</span>
         </div>`).join('')}
@@ -1357,7 +1372,7 @@ function buildRadarChart(idea) {
     data:{
       labels:['Pain','Urgency','Budget','Alternatives','Awareness'],
       datasets:[{
-        data:Object.values(idea.scores||{pain:3,urgency:3,budget:3,alternatives:3,awareness:3}),
+        data:SCORE_KEYS.map(k => scoreValue(idea, k)),
         backgroundColor:'rgba(0,245,200,0.12)',
         borderColor:'rgba(0,245,200,0.8)',borderWidth:2,
         pointBackgroundColor:'#00f5c8',pointRadius:4,
@@ -1373,13 +1388,12 @@ function buildRadarChart(idea) {
 function buildScoreChart(idea) {
   const el = document.getElementById('scoreBarChart'); if(!el) return;
   const c = getChartColors();
-  const s = idea.scores||{};
   charts.scoreBar = new Chart(el, {
     type:'bar',
     data:{
       labels:['Pain','Urgency','Budget','Alt.','Aware.'],
       datasets:[{
-        data:Object.values(s),
+        data:SCORE_KEYS.map(k => scoreValue(idea, k)),
         backgroundColor:['rgba(0,245,200,0.6)','rgba(124,107,255,0.6)','rgba(255,107,157,0.6)','rgba(255,185,64,0.6)','rgba(61,255,160,0.6)'],
         borderRadius:4,borderWidth:0,
       }]
@@ -1500,9 +1514,9 @@ function renderCompare() {
 }
 function buildScoreBarsHTML(idea) {
   const s = totalScore(idea); const tc = tierClass(s);
-  return Object.entries(idea.scores||{}).map(([k,v])=>`
+  return scoreEntries(idea).map(([k,v])=>`
     <div class="sb-row">
-      <span class="sb-label">${{pain:'Pain',urgency:'Urgency',budget:'Budget',alternatives:'Alternatives',awareness:'Awareness'}[k]||k}</span>
+      <span class="sb-label">${SCORE_LABELS[k]||k}</span>
       <div class="sb-track"><div class="sb-fill" data-pct="${v/5*100}"></div></div>
       <span class="sb-num">${v}</span>
     </div>`).join('')+`<div class="score-total-bar"><span class="stl">TOTAL</span><span class="stv ${tc}">${s}/25</span></div>`;
@@ -1973,7 +1987,7 @@ function exportPDF() {
   <div class="grid">
     <div class="section">
       <h2>Problem Score</h2>
-      ${Object.entries(idea.scores||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span class="field-val">${k}</span><strong>${v}/5</strong></div>`).join('')}
+      ${scoreEntries(idea).map(([k,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span class="field-val">${SCORE_LABELS[k]||k}</span><strong>${v}/5</strong></div>`).join('')}
       <div style="border-top:2px solid #e8e7f0;margin-top:8px;padding-top:8px;display:flex;justify-content:space-between"><strong>Total</strong><strong style="color:${s>=20?'#16a34a':s>=13?'#d97706':'#dc2626'}">${s}/25</strong></div>
     </div>
     <div class="section">
@@ -2222,7 +2236,7 @@ function exportAllPDF(list) {
 
       <div class="grid2">
         <div class="section"><h2>Problem Score</h2>
-          ${Object.entries(idea.scores||{}).map(([k,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span class="fv">${k}</span><strong>${v}/5</strong></div>`).join('')}
+          ${scoreEntries(idea).map(([k,v])=>`<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span class="fv">${SCORE_LABELS[k]||k}</span><strong>${v}/5</strong></div>`).join('')}
           <div style="border-top:2px solid #e8e7f0;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between"><strong>Total</strong><strong style="color:${s>=20?'#16a34a':s>=13?'#d97706':'#dc2626'}">${s}/25</strong></div>
         </div>
         <div class="section"><h2>Business Model</h2>
