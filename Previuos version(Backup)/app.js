@@ -313,7 +313,7 @@ const PHASES = [
   { n:5, title:'Market & Business',  goal:'Ensure it can become a real company.' },
   { n:6, title:'7-Question Filter',  goal:'Answer the key startup filters.' },
   { n:7, title:'Moat & Risk',        goal:'Assess defensibility and risks.' },
-  { n:8, title:'Reality Testing Plan', goal:'Test the idea with reality before committing.' },
+  { n:8, title:'Commitment',         goal:'Make your final thesis & decision.' },
 ];
 
 const DOMAINS = ['Healthcare','Education','Energy','Finance','Logistics','Agriculture',
@@ -341,7 +341,7 @@ function blank() {
     risks:['','','','',''], risksControl:'',
     asymmetricWork:'', asymmetricFail:'', asymmetricExplain:'',
     assumptions:[], assumptionList:['','',''],
-    experiments:[], experimentDesc:'', evidence2:'', realityDecision:'',
+    experiments:[], experimentDesc:'', evidence2:'',
     summaryInsight:'', summaryProblem:'', summarySolution:'',
     summaryUser:'', summaryMarket:'', summaryBiz:'',
     summaryDist:'', summaryMoat:'', summaryWhy:'', summaryVision:'',
@@ -812,16 +812,11 @@ function buildForm() {
     ${fg('Asymmetric Explanation','<textarea class="form-textarea" id="f-asymmetricExplain" placeholder="Why is this an asymmetric bet?"></textarea>')}
   `));
   form.appendChild(makePhase(7, `
-    ${fg('Key Assumptions to Test', mkPills('asmp',['Problem is real','Users care enough','Willingness to pay','Solution usage','Acquisition channel works']))}
+    ${fg('Key Assumptions', mkPills('asmp',['Problem is real','Users care enough','Willingness to pay','Solution gets used','Channel works']))}
     ${fg('Top 3 Assumptions to Test', mkAsmpList())}
-    ${fg('Validation Experiments', mkPills('exp',['Interviews','Landing page','Demo','Prototype','Concierge MVP']))}
-    ${fg('Describe','<textarea class="form-textarea" id="f-experimentDesc" placeholder="What validation experiments will you run?"></textarea>')}
-    ${fg('Evidence Collected','<textarea class="form-textarea" id="f-evidence2" placeholder="Results / learnings..."></textarea>')}
-    ${fg('Reality Testing Decision',`<div class="reality-decision-row">
-      <button type="button" class="reality-btn rdb-proceed" onclick="selectRealityDecision(this,'Proceed')">Proceed</button>
-      <button type="button" class="reality-btn rdb-pivot" onclick="selectRealityDecision(this,'Pivot')">Pivot</button>
-      <button type="button" class="reality-btn rdb-kill" onclick="selectRealityDecision(this,'Kill')">Kill</button>
-    </div>`)}
+    ${fg('Validation Methods', mkPills('exp',['Customer interviews','Landing page','Demo/prototype','Concierge MVP','A/B test']))}
+    ${fg('Experiment Plan','<textarea class="form-textarea" id="f-experimentDesc" placeholder="What experiments will you run in the next 30 days?"></textarea>')}
+    ${fg('Evidence Collected','<textarea class="form-textarea" id="f-evidence2" placeholder="Learnings from validation so far..."></textarea>')}
     <hr style="border:none;border-top:1px solid var(--border);margin:22px 0">
     <div style="font-family:var(--font-d);font-size:16px;font-weight:700;color:var(--text);margin-bottom:16px">📄 One-Page Thesis</div>
     <div class="thesis-grid">
@@ -955,11 +950,6 @@ function selectDecision(btn, val) {
   btn.classList.add('active');
   formData.finalDecision = val;
 }
-function selectRealityDecision(btn, val) {
-  document.querySelectorAll('.reality-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  formData.realityDecision = val;
-}
 
 // ===================== CAPTURE FORM DATA =====================
 function captureFormData() {
@@ -998,7 +988,6 @@ function captureFormData() {
   formData.assumptionList = [1,2,3].map(n=>g('f-asmp'+n));
   formData.experiments = cb('exp'); formData.experimentDesc = g('f-experimentDesc');
   formData.evidence2 = g('f-evidence2');
-  if (!formData.realityDecision) formData.realityDecision = '';
   ['summaryInsight','summaryProblem','summarySolution','summaryUser','summaryMarket',
    'summaryBiz','summaryDist','summaryMoat','summaryWhy','summaryVision'].forEach(k => formData[k]=g('f-'+k));
   formData.conviction = +g('f-conviction')||7;
@@ -1007,10 +996,6 @@ function captureFormData() {
 function populateForm(d) {
   const s = (id, v) => { const el=document.getElementById(id); if(el) el.value=v||''; };
   const sc = (name, vals) => document.querySelectorAll(`#ideaForm input[name="${name}"]`).forEach(cb => cb.checked=(vals||[]).includes(cb.value));
-  const aliases = (vals, map) => {
-    const base = vals || [];
-    return [...base, ...base.map(v => map[v]).filter(Boolean)];
-  };
   s('f-name',d.name); s('f-date',d.date);
   sc('domain',d.domains);
   s('f-tags',(d.tags||[]).join(', '));
@@ -1039,10 +1024,9 @@ function populateForm(d) {
   (d.risks||[]).forEach((r,i)=>s('f-risk'+(i+1),r));
   s('f-risksControl',d.risksControl); s('f-asymmetricWork',d.asymmetricWork);
   s('f-asymmetricFail',d.asymmetricFail); s('f-asymmetricExplain',d.asymmetricExplain);
-  sc('asmp',aliases(d.assumptions, {'Solution gets used':'Solution usage','Channel works':'Acquisition channel works'}));
+  sc('asmp',d.assumptions);
   (d.assumptionList||[]).forEach((a,i)=>s('f-asmp'+(i+1),a));
-  sc('exp',aliases(d.experiments, {'Customer interviews':'Interviews','Demo/prototype':'Prototype'})); s('f-experimentDesc',d.experimentDesc); s('f-evidence2',d.evidence2);
-  if(d.realityDecision){ const btn=document.querySelector(`.rdb-${d.realityDecision.toLowerCase()}`); if(btn)btn.classList.add('active'); }
+  sc('exp',d.experiments); s('f-experimentDesc',d.experimentDesc); s('f-evidence2',d.evidence2);
   ['summaryInsight','summaryProblem','summarySolution','summaryUser','summaryMarket',
    'summaryBiz','summaryDist','summaryMoat','summaryWhy','summaryVision'].forEach(k=>s('f-'+k,d[k]));
   s('f-conviction',d.conviction||7);
@@ -1268,31 +1252,6 @@ function buildDetailHTML(idea) {
   </div>
 
   <!-- Phase 8 -->
-  <div class="detail-card full" style="margin-bottom:16px">
-    <div class="dc-header"><span class="dc-badge">PHASE 8</span><span class="dc-title">Reality Testing Plan</span></div>
-    <div class="biz-3col">
-      <div>
-        <div class="df"><div class="df-label">Key Assumptions</div>
-          <div class="df-val">${(idea.assumptions||[]).map(a=>`<span style="font-size:10px;padding:2px 8px;background:var(--bg3);border-radius:99px;margin-right:4px">${a}</span>`).join('')||'â€”'}</div>
-        </div>
-        <div class="df"><div class="df-label">Top 3 Assumptions</div>
-          <div class="df-val">${(idea.assumptionList||[]).filter(Boolean).map((a,i)=>`<div>${i+1}. ${a}</div>`).join('')||'â€”'}</div>
-        </div>
-      </div>
-      <div>
-        <div class="df"><div class="df-label">Validation Experiments</div>
-          <div class="df-val">${(idea.experiments||[]).map(e=>`<span style="font-size:10px;padding:2px 8px;background:var(--bg3);border-radius:99px;margin-right:4px">${e}</span>`).join('')||'â€”'}</div>
-        </div>
-        <div class="df"><div class="df-label">Describe</div><div class="df-val">${idea.experimentDesc||'â€”'}</div></div>
-      </div>
-      <div>
-        <div class="df"><div class="df-label">Evidence Collected</div><div class="df-val">${idea.evidence2||'â€”'}</div></div>
-        <div class="df"><div class="df-label">Decision</div><div class="df-val">${buildRealityDecisionBadge(idea.realityDecision)}</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Final Decision -->
   <div class="detail-card full" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(0,245,200,0.04),rgba(124,107,255,0.04));border-color:rgba(0,245,200,0.12)">
     <div class="dc-header"><span class="dc-badge">FINAL</span><span class="dc-title">Commitment & Thesis</span></div>
     <div class="commitment-2col">
@@ -1326,15 +1285,6 @@ function buildDecisionBadge(d) {
     'Discard':'background:var(--danger-dim);color:var(--danger);border-color:rgba(255,77,106,0.3)'
   }[d]||'background:var(--bg3);color:var(--text2)';
   return `<span style="display:inline-block;padding:8px 24px;border-radius:99px;border:1px solid;font-size:14px;font-weight:600;font-family:var(--font-d);${s}">${d}</span>`;
-}
-function buildRealityDecisionBadge(d) {
-  if(!d) return '<span style="color:var(--text3);font-size:12px">No reality decision yet</span>';
-  const s = {
-    'Proceed':'background:var(--success-dim);color:var(--success);border-color:rgba(61,255,160,0.3)',
-    'Pivot':'background:var(--warn-dim);color:var(--warn);border-color:rgba(255,185,64,0.3)',
-    'Kill':'background:var(--danger-dim);color:var(--danger);border-color:rgba(255,77,106,0.3)'
-  }[d]||'background:var(--bg3);color:var(--text2)';
-  return `<span style="display:inline-block;padding:6px 18px;border-radius:99px;border:1px solid;font-size:12px;font-weight:600;font-family:var(--font-d);${s}">${d}</span>`;
 }
 
 // ===================== CHARTS =====================
@@ -1998,17 +1948,6 @@ function exportPDF() {
     <div><div class="field-label">Moats</div><div class="chips">${(idea.moats||[]).map(m=>`<span class="chip">${m}</span>`).join('')||'—'}</div></div>
     <div style="margin-top:12px"><div class="field-label">Top Risks</div>${(idea.risks||[]).filter(Boolean).map((r,i)=>`<div class="field-val">${i+1}. ${r}</div>`).join('')||'—'}</div>
   </div>
-  <div class="section">
-    <h2>Reality Testing Plan</h2>
-    <div class="grid">
-      <div><div class="field-label">Key Assumptions</div><div class="field-val">${(idea.assumptions||[]).join(', ')||'â€”'}</div></div>
-      <div><div class="field-label">Top Assumptions</div><div class="field-val">${(idea.assumptionList||[]).filter(Boolean).map((a,i)=>`${i+1}. ${a}`).join('<br>')||'â€”'}</div></div>
-      <div><div class="field-label">Validation Experiments</div><div class="field-val">${(idea.experiments||[]).join(', ')||'â€”'}</div></div>
-      <div><div class="field-label">Describe</div><div class="field-val">${idea.experimentDesc||'â€”'}</div></div>
-      <div><div class="field-label">Evidence Collected</div><div class="field-val">${idea.evidence2||'â€”'}</div></div>
-      <div><div class="field-label">Decision</div><div class="field-val"><strong>${idea.realityDecision||'â€”'}</strong></div></div>
-    </div>
-  </div>
   <div class="section" style="background:${idea.finalDecision==='Commit fully'?'#f0fdf4':idea.finalDecision==='Discard'?'#fef2f2':'#fffbeb'}">
     <h2>Final Decision</h2>
     <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:${idea.finalDecision==='Commit fully'?'#16a34a':idea.finalDecision==='Discard'?'#dc2626':'#d97706'}">${idea.finalDecision||'Not decided'}</div>
@@ -2143,9 +2082,6 @@ function exportToExcel(list) {
     ['Moats','moats'], ['Moat Explanation','moatExplain'],
     ['Risks','_risks'], ['Risks Controllable','risksControl'],
     ['Asymmetric Work','asymmetricWork'], ['Asymmetric Fail','asymmetricFail'],
-    ['Key Assumptions','assumptions'], ['Top Assumptions','assumptionList'],
-    ['Validation Experiments','experiments'], ['Experiment Description','experimentDesc'],
-    ['Evidence Collected','evidence2'], ['Reality Decision','realityDecision'],
     ['Summary Insight','summaryInsight'], ['Summary Problem','summaryProblem'],
     ['Summary Solution','summarySolution'], ['Summary User','summaryUser'],
     ['Summary Market','summaryMarket'], ['Summary Biz','summaryBiz'],
@@ -2247,16 +2183,6 @@ function exportAllPDF(list) {
         </div>
         <div class="section"><h2>Top Risks</h2>
           ${(idea.risks||[]).filter(Boolean).map((r,i)=>`<div class="fv">${i+1}. ${r}</div>`).join('')||'—'}
-        </div>
-      </div>
-      <div class="section"><h2>Reality Testing Plan <span style="font-size:12px;font-weight:400;color:${idea.realityDecision==='Proceed'?'#16a34a':idea.realityDecision==='Pivot'?'#d97706':'#dc2626'}">${idea.realityDecision||''}</span></h2>
-        <div class="grid">
-          <div><div class="fl">Key Assumptions</div><div class="fv">${(idea.assumptions||[]).join(', ')||'â€”'}</div></div>
-          <div><div class="fl">Top Assumptions</div><div class="fv">${(idea.assumptionList||[]).filter(Boolean).map((a,i)=>`${i+1}. ${a}`).join('<br>')||'â€”'}</div></div>
-          <div><div class="fl">Validation Experiments</div><div class="fv">${(idea.experiments||[]).join(', ')||'â€”'}</div></div>
-          <div><div class="fl">Describe</div><div class="fv">${idea.experimentDesc||'â€”'}</div></div>
-          <div><div class="fl">Evidence Collected</div><div class="fv">${idea.evidence2||'â€”'}</div></div>
-          <div><div class="fl">Decision</div><div class="fv">${idea.realityDecision||'â€”'}</div></div>
         </div>
       </div>
       ${idea.finalNotes?`<div class="section"><h2>Final Notes</h2><div class="fv" style="font-style:italic">"${idea.finalNotes}"</div></div>`:''}
@@ -2821,10 +2747,9 @@ Return ONLY a valid JSON object with ALL these fields:
   "asymmetricExplain": "Why this is an asymmetric bet",
   "assumptions": ["Problem is real","Willingness to pay"],
   "assumptionList": ["Assumption 1","Assumption 2","Assumption 3"],
-  "experiments": ["Interviews","Prototype"],
+  "experiments": ["Customer interviews","Prototype"],
   "experimentDesc": "Validation experiments to run",
   "evidence2": "Evidence collected so far",
-  "realityDecision": "Proceed",
   "summaryInsight": "Core insight in one sentence",
   "summaryProblem": "Core problem in one sentence",
   "summarySolution": "Solution in one sentence",
@@ -2883,7 +2808,6 @@ Be specific, realistic and detailed. The scores should reflect the actual streng
                       ? data.scores
                       : {pain:3,urgency:3,budget:3,alternatives:3,awareness:3},
       conviction:    typeof data.conviction==='number' ? data.conviction : 7,
-      realityDecision:['Proceed','Pivot','Kill'].includes(data.realityDecision) ? data.realityDecision : '',
     };
 
     setStep(7);
@@ -3043,12 +2967,11 @@ async function loadPreset() {
     risks:['Prediction accuracy','Low adoption','Integration complexity','Competing AI','Regulation'],
     risksControl:'Mostly', asymmetricWork:'Yes', asymmetricFail:'Yes',
     asymmetricExplain:'Potential $1B+ market; downside capped at pilot costs.',
-    assumptions:['Problem is real','Users care enough','Willingness to pay','Solution usage','Acquisition channel works'],
+    assumptions:['Problem is real','Users care enough','Willingness to pay','Solution gets used','Channel works'],
     assumptionList:['Operators will adopt AI tools','AI gives measurable cost savings','Willingness to pay $500/mo/fleet'],
-    experiments:['Interviews','Demo','Prototype','Concierge MVP'],
+    experiments:['Customer interviews','Demo/prototype','Concierge MVP'],
     experimentDesc:'3-fleet pilot, 90 days, measure delivery time and fuel.',
     evidence2:'Pilot: 25% faster deliveries, 15% fuel savings. 3/3 willing to pay.',
-    realityDecision:'Proceed',
     summaryInsight:'AI route optimization is radically better than human planning.',
     summaryProblem:'Manual routing wastes 20-30% of logistics costs.',
     summarySolution:'Real-time AI fleet optimization platform.',
